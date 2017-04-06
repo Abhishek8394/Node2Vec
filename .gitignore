@@ -1,4 +1,8 @@
 data/
+logs/
+.settings/
+bin/
+target/
 
 
 # Windows image file caches
