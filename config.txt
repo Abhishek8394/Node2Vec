@@ -1,0 +1,11 @@
+{
+	"nodes_file":"data/nodes.csv",
+	"nodes_edges_file": "data/edges.csv",
+	"labels_file":"data/groups.csv",
+	"nodes_labels_file":"data/group-edges.csv",
+	"is_directed": false,
+	"log_dir": "logs",
+	"allow_logging": true,
+	"p":0.15,
+	"q":0.30
+}
