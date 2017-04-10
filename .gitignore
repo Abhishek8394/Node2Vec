@@ -3,7 +3,8 @@ logs/
 .settings/
 bin/
 target/
-
+embedding/runs
+*.pyc
 
 # Windows image file caches
 Thumbs.db

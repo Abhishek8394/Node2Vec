@@ -6,6 +6,8 @@
 	"is_directed": false,
 	"log_dir": "logs",
 	"allow_logging": true,
+	"walk_length":80,
+	"num_walks":16,
 	"p":0.15,
 	"q":0.30
 }

@@ -75,7 +75,11 @@ public class Node2vec {
 		}
 		else{
 			walkStatus = new JSONObject();
-			walkStatus.append(LAST_PROCESSED_INDEX_KEY, startIndex);
+			walkStatus.put(LAST_PROCESSED_INDEX_KEY, startIndex);
+			walkStatus.put("p",this.p);
+			walkStatus.put("q",this.q);
+			walkStatus.put("num_walks",num_walks);
+			walkStatus.put("walk_length", walk_length);
 		}
 		for(int i = startIndex;i<nodes.length;i++){
 			ArrayList<String> walksBuffer = new ArrayList<>();

@@ -1,0 +1,11 @@
+{
+	"embedding_size":128,
+	"nce_sample_size":5,
+	"batch_size": 10,
+	"data_split":0.5,
+	"window_size":3,
+	"log_dir": "runs",
+	"num_epochs": 1,
+	"summary_frequency": 1000,
+	"num_checkpoints": 5
+}
