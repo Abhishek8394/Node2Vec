@@ -89,14 +89,56 @@ def executeTrainingGraph(graphVars, logdirs, dataset, batch_size, window_size, n
 		# embedding.metadata_path = os.path.join(summary_directory,'metadata.tsv')
 		# projector.visualize_embeddings(summaryWriter, embedding_visualizer_config)
 
+"""
+output embeddings written as :
+node_id:d1,d2,d3...
+"""		
+def printEmbeddings(graphVars, checkpoint_directory, print_only, output_file):
+	graph = graphVars['graph']
+	embeddings = res['embeddings']
+	outputFilePath = os.path.join(checkpoint_directory,output_file)
+	if not print_only:
+		print("Will write embeddings in {}".format(outputFilePath))
+		opfile = open(outputFilePath,"w")
+	with tf.Session(graph=graph) as session:
+		saver = tf.train.Saver(tf.global_variables())
+		ckpt = tf.train.get_checkpoint_state(checkpoint_directory)
+		saver.restore(session, ckpt.model_checkpoint_path)
+		embed = session.run(embeddings)
+		for i in range(len(embed)):
+			opstring = str(i)+":"+",".join([str(x) for x in embed[i]])
+			if print_only:
+				print(opstring)
+			else:
+				opfile.write(opstring+"\n")
+	if not print_only:
+		opfile.close()
+
 if __name__ == "__main__":
 	parser = argparse.ArgumentParser()
 	parser.add_argument("--config-file", help="Config file for the training session", default="./train_config.txt")
 	parser.add_argument("--input-file", help="Dataset of walks", required=False)
+	parser.add_argument("--load-embed-from",help="just load pre-trained embeddings from a log diectory", default=None)
+	parser.add_argument("--print-only",help="only print the embeddings, do not write to file", action='store_true')
+	parser.add_argument("--output-file", help="custom filename for storing embeddings.", default="embeddings.txt")
 	args = parser.parse_args()
 	config = utility.ConfigProvider(args.config_file)	
-	
+	vocabulary_size = 10312#ds_res['num_nodes']
+	embedding_size = config.getOption('embedding_size')
+	nce_sample_size = config.getOption('nce_sample_size')
+	batch_size = config.getOption('batch_size')
+	window_size = config.getOption('window_size')
+	num_epochs = config.getOption('num_epochs')
+	summary_frequency = config.getOption('summary_frequency')
+	num_checkpoints = config.getOption('num_checkpoints')
+
+	if args.load_embed_from!=None:
+		res = createTrainingGraph(vocabulary_size, embedding_size, nce_sample_size)
+		printEmbeddings(res, args.load_embed_from, args.print_only, args.output_file)
+		exit(1)
+
 	print("Loading dataset")
+	exit(1)
 	ds_res = dh.loadDataset(args.input_file, max_rec=-1)
 	data_split = config.getOption('data_split')
 	dataset = ds_res['dataset']
@@ -113,14 +155,6 @@ if __name__ == "__main__":
 	print("Creating log dirs")
 	logdirs = createLogDirectories(config.getOption('log_dir'))
 	print("Done")
-	vocabulary_size = 10312#ds_res['num_nodes']
-	embedding_size = config.getOption('embedding_size')
-	nce_sample_size = config.getOption('nce_sample_size')
-	batch_size = config.getOption('batch_size')
-	window_size = config.getOption('window_size')
-	num_epochs = config.getOption('num_epochs')
-	summary_frequency = config.getOption('summary_frequency')
-	num_checkpoints = config.getOption('num_checkpoints')
 	# train_batches = dh.BatchGenerator(ds_res['dataset'], 5, 5)
 	# print("Actual batch size: {}".format(train_batches.getResultantBatchSize()))
 	# for i in range(5):

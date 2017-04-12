@@ -20,12 +20,20 @@ def loadDataset(fileName, dataDelim=":", max_rec = -1):
 	num_nodes = len(nodes)
 	return {"dataset": ds, "num_nodes": num_nodes}
 
-# since graphs contain vertices 1...n and we need to map them to 0 - (vocab_size-1)
-# switch these implementations for differnet graph
+"""
+since graphs contain vertices 1...n and we need to map them to 0 - (vocab_size-1)
+switch these implementations for differnet graph
+"""
 def node2id(node):
-	return node - 1
+	return node-1
 
 def id2node(_id):
+	return _id+1
+
+def label2id(node):
+	return node-1
+
+def id2label(_id):
 	return _id+1
 
 class BatchGenerator(object):
