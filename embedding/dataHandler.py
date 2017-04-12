@@ -52,6 +52,21 @@ class BatchGenerator(object):
 		maxNxt = min(self.rec_cursors[cur_ind] + self.window_size, len(nds)-1)
 		batch=[]
 		labels=[]
+		# TODO instead of 50%of database, take 50% of each walk. Also maybe invert batch and label pairs too?
+		# modified version, node vs walks. (Not how the paper did)
+		# if len(nds)==1:
+		# 	for i in range(window_size):
+		# 		batch.append(node2id(nds[0]))
+		# 		labels.append([node2id(nds[0])])
+		# else:
+		# 	for i in range(1,len(nds)):
+		# 		batch.append(node2id(nds[0]))
+		# 		labels.append([node2id(nds[i])])
+		# self.cursors[cur_ind] = (self.cursors[cur_ind] + 1) % len(self.ds)
+		# return {"batch": batch, "label":labels} 
+
+		# TODO-> run with following model.
+		# literal skip gram.
 		for i in range(prevInd, maxNxt+1, 1):
 			if i==self.rec_cursors[cur_ind]:
 				continue
