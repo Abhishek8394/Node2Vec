@@ -146,19 +146,37 @@ def get_accuracy(pred, labels):
 	acc=0
 	n = 0
 	c=0
+	net_pos = 0
+	net_neg = 0
+	TP = 0 #true positive
+	FN = 0 # false negative
+	FP = 0 # false positive
+	TN = 0 # true negative
 	# not looping on labels because this makes testing easy.
 	for i in range(len(pred)):
 		# c = 0
 		for j in range(len(pred[0])):
 			if labels[i][j][0]==1:
-				if pred[i][j]==labels[i][j][0]:
-					c+=1
-				n+=1
-	if n==0:
-		if c==0:
-			return 'N/A'
-		return n-c
-	return 100 * c / n 
+				if pred[i][j]==1:
+					TP+=1
+				else:
+					FN+=1
+				net_pos+=1
+			else:
+				if pred[i][j]==0:
+					TN+=1
+				else:
+					FP+=1
+				net_neg+=1
+	precision = float(TP) / (TP + FP)
+	recall = float(TP) / (TP + FN)
+	f1 = 2 * precision * recall / (precision + recall + 1e-7)
+	return f1
+	# if n==0:
+	# 	if c==0:
+	# 		return 'N/A'
+	# 	return n-c
+	# return 100 * c / n 
 		# acc+= float(c) / len(pred[0])
 	# return (100 * abs(n-c)) / (len(pred)*len(pred[0]))
 
@@ -249,7 +267,7 @@ def executeTraining(train_dataset_merged, valid_dataset_merged, num_epochs, batc
 			# print(feed_dict[tg.labels])
 			# break
 			acc = get_accuracy(pred_hot_vec, lbls_batch)
-			print("step {}/{}: loss: {}, accuracy:{}".format(i,num_iters,net_loss, acc))
+			print("step {}/{}: loss: {}, f1:{}".format(i,num_iters,net_loss, acc))
 			if i%summary_frequency==0:
 				print((len(pred_hot_vec),len(pred_hot_vec[0])), (len(lbls_batch),len(lbls_batch[0])))
 				for j in range(len(pred_hot_vec)):
