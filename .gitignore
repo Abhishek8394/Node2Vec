@@ -4,6 +4,7 @@ logs/
 bin/
 target/
 embedding/runs
+embedding/classifier_runs
 *.pyc
 
 # Windows image file caches

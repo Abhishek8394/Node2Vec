@@ -5,6 +5,7 @@ import os
 from dataHandler import node2id, id2node, label2id, id2label
 import utility
 import argparse
+import time
 
 """
 nodefile -> just a list of all possible nodes.
@@ -30,6 +31,10 @@ def loadDataset(nodeFile, labelFile, node2labelFile):
 	reverseNodes = dict(zip(nodes.values(), nodes.keys()))
 	reverseLabels = dict(zip(labels.values(), labels.keys()))
 	return {"nodes":nodes, "labels":labels, "node2labels":node2labels, "reverseNodes":reverseNodes, "reverseLabels":reverseLabels}
+def writeMeta(meta_file, embedding_file, hidden_size):
+	j = {'embedding_file':embedding_file, 'hidden_size':hidden_size}
+	with open(meta_file,"w") as f:
+		f.write(str(j))
 
 def collectNodesAndLabels(node2labels):
 	nl = {}
@@ -117,7 +122,7 @@ class classifier_core_layer(object):
 		self.loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=self.logits, labels=labels)) + (l2_lambda * self.l2_loss)
 		# loss = tf.reduce_mean(-(labels * tf.log(self.prediction + 1e-7) + (1-labels)*tf.log(1-self.prediction + 1e-7))) + (l2_lambda * self.l2_loss) 
 		# self.loss = tf.identity(loss, name="loss")
-		self.optimizer = tf.train.GradientDescentOptimizer(1e-2).minimize(self.loss)
+		self.optimizer = tf.train.AdadeltaOptimizer(1e-2).minimize(self.loss)
 		self.l2_summary = tf.summary.scalar("l2_summary", self.l2_loss)
 		self.loss_summary = tf.summary.scalar("loss_summary", self.loss)
 
@@ -138,7 +143,8 @@ class TrainingGraph(object):
 				classify_summaries.append(csfr.l2_summary)
 		self.loss = tf.reduce_mean([x.loss for x in self.classifiers])
 		self.average_loss_summary = tf.summary.scalar("avg_loss",self.loss)
-		self.all_summaries = tf.summary.merge(classify_summaries + [self.average_loss_summary])
+		classify_summaries.append(self.average_loss_summary)
+		self.all_summaries = tf.summary.merge(classify_summaries)
 
 # crude count of amount of labels predicted accurately. 
 # Not accuracy exactly, but for a rough idea.
@@ -190,21 +196,23 @@ def createInpOutListsFromBatch(batch):
 	return inp_x, inp_y
 
 def executeTraining(train_dataset_merged, valid_dataset_merged, num_epochs, batch_size, vocabulary_size, embedding_size, num_labels, hidden_size, 
-					summary_frequency, embeddings_file, log_directory):
+					summary_frequency, embeddings_file, log_directory, num_checkpoints = 5):
 	graph = tf.Graph()
 	with graph.as_default():
 		tg = TrainingGraph(vocabulary_size, embedding_size, num_labels, hidden_size)
 	train_batch = BatchGenerator(train_dataset_merged, batch_size, num_labels)
 	valid_batch = BatchGenerator(valid_dataset_merged, len(valid_dataset_merged), num_labels)
 
-	train_log_directory = os.path.join(log_directory,"train")
-	train_summary_directory = os.path.join(train_log_directory,"summaries")
-	train_model_directory = os.path.join(train_log_directory,"models")
-	valid_log_directory = os.path.join(log_directory, "valid")
-	# utility.makeDir(train_summary_directory)
-	# utility.makeDir(train_model_directory)
-	# utility.makeDir(valid_log_directory)
-
+	summary_directory = os.path.join(log_directory,"summaries")
+	train_log_directory = os.path.join(summary_directory,"train")
+	valid_log_directory = os.path.join(summary_directory, "valid")
+	train_model_directory = os.path.join(log_directory,"models")
+	train_model_file = os.path.join(train_model_directory, 'checkpoint')
+	utility.makeDir(train_log_directory)
+	utility.makeDir(train_model_directory)
+	utility.makeDir(valid_log_directory)
+	train_summary_writer = tf.summary.FileWriter(train_model_directory, graph = graph)
+	
 	num_iters = (len(train_dataset_merged) // batch_size) * num_epochs
 	feed_dict={}
 	embeddings = utility.loadEmbeddings(embeddings_file)
@@ -214,14 +222,15 @@ def executeTraining(train_dataset_merged, valid_dataset_merged, num_epochs, batc
 	overall_avg_loss = 0.0
 	with tf.Session(graph=graph) as session:
 		session.run(tf.global_variables_initializer())
+		saver = tf.train.Saver(tf.global_variables(),max_to_keep = num_checkpoints)
 		for i in range(num_iters):
 			batch = train_batch.next_batch()
 			feed_dict[tg.inp_x], lbls_batch = createInpOutListsFromBatch(batch)
 			feed_dict[tg.labels] = np.transpose(lbls_batch,[1,0,2])
 			chk = False
 			num_classifiers_to_test = len(tg.classifiers)
-			if 1 in feed_dict[tg.labels][0]:
-				chk=True
+			# if 1 in feed_dict[tg.labels][0]:
+			# 	chk=True
 			# print(feed_dict[tg.labels])
 			# dec=[hotDecode(x) for x in feed_dict[tg.labels]]
 			# print(dec)
@@ -235,8 +244,12 @@ def executeTraining(train_dataset_merged, valid_dataset_merged, num_epochs, batc
 			classifier_ops = []
 			# loss across all classifiers.
 			net_loss = 0.0
+			train_summary = None
 			for j in range(num_classifiers_to_test):
-				cl, prediction, _ = session.run([tg.classifiers[j].loss, tg.classifiers[j].prediction, tg.classifiers[j].optimizer], feed_dict=feed_dict)
+				if j==num_classifiers_to_test-1:
+					cl, prediction, _, train_summary = session.run([tg.classifiers[j].loss, tg.classifiers[j].prediction, tg.classifiers[j].optimizer, tg.all_summaries], feed_dict=feed_dict)
+				else:	
+					cl, prediction, _ = session.run([tg.classifiers[j].loss, tg.classifiers[j].prediction, tg.classifiers[j].optimizer], feed_dict=feed_dict)
 				# print(prediction)
 				classifier_ops.append(prediction)
 			# for x in range(len(prediction)):
@@ -262,6 +275,7 @@ def executeTraining(train_dataset_merged, valid_dataset_merged, num_epochs, batc
 				pred_hot_vec.append(hotEncodeDistribution(classifier_ops[j]))
 			# memory cleanup, bit agressive
 			del classifier_ops
+			train_summary_writer.add_summary(train_summary,i)
 			# print(pred_hot_vec)
 			# print("labels")
 			# print(feed_dict[tg.labels])
@@ -269,6 +283,8 @@ def executeTraining(train_dataset_merged, valid_dataset_merged, num_epochs, batc
 			acc = get_accuracy(pred_hot_vec, lbls_batch)
 			print("step {}/{}: loss: {}, f1:{}".format(i,num_iters,net_loss, acc))
 			if i%summary_frequency==0:
+				save_loc = saver.save(session, train_model_file, global_step = i)
+				print("Saving model at {}".format(save_loc))
 				print((len(pred_hot_vec),len(pred_hot_vec[0])), (len(lbls_batch),len(lbls_batch[0])))
 				for j in range(len(pred_hot_vec)):
 					print(pred_hot_vec[j],"--",lbls_batch[j][:num_classifiers_to_test])
@@ -290,11 +306,19 @@ splitBorder = int(len(dataset)*split_ratio)
 train_dataset = dataset[:splitBorder]
 valid_dataset = dataset[splitBorder:]
 train_dataset_merged = collectNodesAndLabels(train_dataset)
-valid_dataset_merged = collectNodesAndLabels(valid_dataset)			
+valid_dataset_merged = collectNodesAndLabels(valid_dataset)
+num_epochs = 1			
+batch_size = 5
+hidden_size = 50
+embedding_size = 128
+summary_frequency = 10
 # print(batch2string(train_batch.next_batch()))
 # t = TrainingGraph(len(nodes), 128, len(labels), 15)
-executeTraining(train_dataset_merged, valid_dataset_merged, 1, 5, len(nodes), 128, len(labels), 15, 
-					10, args.embedding_file, "memes")
-log_directory = "directory from loading embeddings " + "classifier_runs" + "timestamp"
-write_metadata = "in metadata.txt, which embeddings file this thing trained and ran on"
+timestamp = int(time.time())
+log_directory = os.path.join("classifier_runs",str(timestamp))
+utility.makeDir(log_directory)
+write_metadata = os.path.join(log_directory,"metadata.txt")
+writeMeta(write_metadata, args.embedding_file, hidden_size)
+executeTraining(train_dataset_merged, valid_dataset_merged, num_epochs, batch_size, len(nodes), embedding_size, len(labels), hidden_size, 
+					summary_frequency, args.embedding_file, log_directory)
 # print(t.classifiers[0].loss)
