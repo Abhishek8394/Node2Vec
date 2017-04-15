@@ -211,7 +211,7 @@ def executeTraining(train_dataset_merged, valid_dataset_merged, num_epochs, batc
 	utility.makeDir(train_log_directory)
 	utility.makeDir(train_model_directory)
 	utility.makeDir(valid_log_directory)
-	train_summary_writer = tf.summary.FileWriter(train_model_directory, graph = graph)
+	train_summary_writer = tf.summary.FileWriter(train_log_directory, graph = graph)
 	
 	num_iters = (len(train_dataset_merged) // batch_size) * num_epochs
 	feed_dict={}
