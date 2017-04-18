@@ -37,6 +37,12 @@ def writeMeta(meta_file, embedding_file, hidden_size):
 	with open(meta_file,"w") as f:
 		f.write(str(j))
 
+"""
+returns 2 dictionaries, keys => labels, values=> tuples of (nodes, 1 if label else 0)
+1st dictionary = training set
+2nd dictionary = validation set
+The split is done on a per label basis, i.e the number of entries for each label are split according to the split ratio.
+"""
 def collectNodesAndLabels(node2labels, should_shuffle, split_ratio=1):
 	nl1 = {}
 	nl2 = {}
@@ -92,6 +98,7 @@ class BatchGenerator(object):
 		self.cursors = [0] * len(self.recList)
 		self.num_labels = num_labels
 
+	# pick batch_size number of training tuples from the dataset for classifer with id 'index'
 	def create_record(self,index):
 		nodes=[0] * self.batch_size
 		labels=[0] * self.batch_size
@@ -107,6 +114,7 @@ class BatchGenerator(object):
 			self.cursors[index] = (self.cursors[index] + 1) % len(self.dataset[lbl])
 		return {'nodes':nodes, 'labels':labels}
 
+	# create a batch for each classifier and return them all as a list.
 	def next_batch(self):
 		batch = []
 		for i in self.recList:
@@ -114,13 +122,19 @@ class BatchGenerator(object):
 			batch.append(b)
 		return batch
 
+	# return batch for just one classifier.
+	def classifier_next_batch(self, classifer_id):
+		return self.create_record(classifer_id)
+
 
 def record2string(rec):
-	nds = [str(x) for x in rec['nodes']]
+	nds = [str(id2node(x)) for x in rec['nodes']]
 	lbls = [str(x[0]) for x in rec['labels']]
 	return " ".join([str(x) for x in zip(nds,lbls)])
 
 def batch2string(batch):
+	if batch is not list:
+		return record2string(batch)
 	s = []
 	for b in batch:
 		s.append(record2string(b))
@@ -210,9 +224,48 @@ def createInpOutListsFromBatch(batch):
 		inp_y.append(k[1])
 	return inp_x, inp_y
 
+def generateLogDirectories(log_directory):
+	summary_directory = os.path.join(log_directory,"summaries")
+	train_log_directory = os.path.join(summary_directory,"train")
+	valid_log_directory = os.path.join(summary_directory, "valid")
+	train_model_directory = os.path.join(log_directory,"models")
+	train_model_file = os.path.join(train_model_directory, 'checkpoint')
+	utility.makeDir(train_log_directory)
+	utility.makeDir(train_model_directory)
+	utility.makeDir(valid_log_directory)
+	return {
+			'summary_directory':summary_directory,
+			'train_log_directory':train_log_directory,
+			'valid_log_directory':valid_log_directory,
+			'train_model_directory':train_model_directory,
+			'train_model_file':train_model_file
+			}
 
-def executeTraining(train_dataset_merged, valid_dataset_merged, num_epochs, batch_size, vocabulary_size, embedding_size, num_labels, hidden_size, 
-					summary_frequency, embeddings_file, log_directory, num_checkpoints = 5):
+def executeTrainStep(session, classifierId, trainingGraph, inp_x, labels,  feed_dict, is_training):
+	tg = trainingGraph
+	# classifier_ops = []
+	summaries_calculated = []
+	net_loss = 0.0
+	cl = None 	# classifier loss
+	prediction = None 
+	loss_summary = None
+	l2_summary = None
+	j = classifierId
+	feed_dict[tg.classifiers[j].inp_x] = inp_x
+	feed_dict[tg.classifiers[j].labels] = labels
+	if is_training:
+		cl, prediction, _, loss_summary, l2_summary = session.run([tg.classifiers[j].loss, tg.classifiers[j].prediction, tg.classifiers[j].optimizer,
+										   tg.classifiers[j].loss_summary, tg.classifiers[j].l2_summary], feed_dict=feed_dict)
+	else:
+		cl, prediction, loss_summary, l2_summary = session.run([tg.classifiers[j].loss, tg.classifiers[j].prediction,
+										   tg.classifiers[j].loss_summary, tg.classifiers[j].l2_summary], feed_dict=feed_dict)
+	net_loss+=cl
+	summaries_calculated.append(loss_summary)
+	summaries_calculated.append(l2_summary)
+	# classifier_ops.append(prediction)
+	return {'classifier_ops':prediction, 'summaries_calculated':summaries_calculated, 'net_loss': net_loss}
+
+def executeTraining(train_dataset_merged, valid_dataset_merged, num_epochs, batch_size, vocabulary_size, embedding_size, num_labels, hidden_size, summary_frequency, embeddings_file, log_directories, num_checkpoints = 5):
 	graph = tf.Graph()
 	with graph.as_default():
 		tg = TrainingGraph(vocabulary_size, embedding_size, num_labels, hidden_size)
@@ -228,14 +281,12 @@ def executeTraining(train_dataset_merged, valid_dataset_merged, num_epochs, batc
 	stat_summary = tf.summary.merge([precision_summary, recall_summary, f1_summary])
 	stat_dict={}
 
-	summary_directory = os.path.join(log_directory,"summaries")
-	train_log_directory = os.path.join(summary_directory,"train")
-	valid_log_directory = os.path.join(summary_directory, "valid")
-	train_model_directory = os.path.join(log_directory,"models")
-	train_model_file = os.path.join(train_model_directory, 'checkpoint')
-	utility.makeDir(train_log_directory)
-	utility.makeDir(train_model_directory)
-	utility.makeDir(valid_log_directory)
+	summary_directory = log_directories['summary_directory']
+	train_log_directory = log_directories['train_log_directory']
+	valid_log_directory = log_directories['valid_log_directory']
+	train_model_directory = log_directories['train_model_directory']
+	train_model_file = log_directories['train_model_file']
+	
 	train_summary_writer = tf.summary.FileWriter(train_log_directory, graph = graph)
 
 	maxLenRecord = max(train_dataset_merged,key = lambda x:len(train_dataset_merged[x]))
@@ -263,15 +314,10 @@ def executeTraining(train_dataset_merged, valid_dataset_merged, num_epochs, batc
 			f1_score = 0.0
 			summaries_calculated = []
 			for j in range(num_classifiers_to_test):
-				feed_dict[tg.classifiers[j].inp_x] = batch[j]['nodes']
-				feed_dict[tg.classifiers[j].labels] = batch[j]['labels']
-				cl, prediction, _, loss_summary, l2_summary = session.run([tg.classifiers[j].loss, tg.classifiers[j].prediction, tg.classifiers[j].optimizer,
-												   tg.classifiers[j].loss_summary, tg.classifiers[j].l2_summary], feed_dict=feed_dict)
-				net_loss+=cl
-				summaries_calculated.append(loss_summary)
-				summaries_calculated.append(l2_summary)
-				classifier_ops.append(prediction)
-
+				op = executeTrainStep(session, j, tg, batch[j]['nodes'], batch[j]['labels'], feed_dict, True)
+				classifier_ops.append(op['classifier_ops'])
+				net_loss += op['net_loss']
+				summaries_calculated.extend(op['summaries_calculated'])
 			pred_hot_vec = []
 			for j in range(len(classifier_ops)):
 				pred_hot_vec.append(hotEncodeDistribution(classifier_ops[j]))
@@ -294,33 +340,82 @@ def executeTraining(train_dataset_merged, valid_dataset_merged, num_epochs, batc
 				for j in range(len(pred_hot_vec)):
 					print(pred_hot_vec[j],"--",batch[j]['labels'])
 					print()
-		
-		valid_batch = BatchGenerator(valid_dataset_merged, validMaxLen, num_labels)
-		
 
-parser = argparse.ArgumentParser()
-parser.add_argument("--embedding-file",help="embeddings txt file to read from", required=True)
-args = parser.parse_args()
+def trainSingleClassifier(classifierId, graph, session, trainingGraph, dataset, batch_size, embeddings, batchGen, num_epochs, 
+						  train_summary_writer, is_training):
+	tg = trainingGraph
+	with graph.as_default():
+		precision_tf = tf.placeholder(shape=[], dtype=tf.float32,name='precision')
+		recall_tf = tf.placeholder(shape=[], dtype=tf.float32,name='recall')
+		f1_tf = tf.placeholder(shape=[], dtype=tf.float32,name='f1')
+	
+	precision_summary = tf.summary.scalar('precision_summary',precision_tf)
+	recall_summary = tf.summary.scalar('recall_summary',recall_tf)
+	f1_summary = tf.summary.scalar('f1_summary',f1_tf)
+	stat_summary = tf.summary.merge([precision_summary, recall_summary, f1_summary])
+	stat_dict={}
 
-res = loadDataset("../data/nodes.csv","../data/groups.csv","../data/balanced-group-edges.csv")
-dataset = res['node2labels']
-nodes=res['nodes']
-labels = res['labels']
-split_ratio = 0.75
-num_epochs = 1			
-batch_size = 5
-hidden_size = 15
-embedding_size = 128
-summary_frequency = 10
-num_labels = len(labels)
+	recordLength = len(dataset[id2label(classifierId)])
+	num_iters = (recordLength // batch_size) * num_epochs	
+	feed_dict={}
+	feed_dict[tg.embeddings] = embeddings
+	classifier_ops = []
+	summaries=[]
+	print("Classifier {} will take {} iters".format(classifierId, num_iters))
+	for i in range(num_iters):
+		batch = batchGen.classifier_next_batch(classifierId)
+		op = executeTrainStep(session, classifierId, tg, batch['nodes'], batch['labels'], feed_dict, is_training)
+		net_loss = op['net_loss']
+		pred = [hotEncodeDistribution(op['classifier_ops'])]
 
-train_dataset = dataset
-train_dataset_merged, valid_dataset_merged = collectNodesAndLabels(train_dataset,True, split_ratio)
+		f1 = get_accuracy(pred, [batch])
+		print("step: {} loss:{} f1:{}".format(i,net_loss,f1))
+		print(pred,batch['labels'])
 
-timestamp = int(time.time())
-log_directory = os.path.join("classifier_runs",str(timestamp))
-utility.makeDir(log_directory)
-write_metadata = os.path.join(log_directory,"metadata.txt")
-writeMeta(write_metadata, args.embedding_file, hidden_size)
-executeTraining(train_dataset_merged, valid_dataset_merged, num_epochs, batch_size, len(nodes), embedding_size, len(labels), hidden_size, 
-					summary_frequency, args.embedding_file, log_directory)
+
+
+if __name__ == '__main__':
+	parser = argparse.ArgumentParser()
+	parser.add_argument("--embedding-file",help="embeddings txt file to read from", required=True)
+	args = parser.parse_args()
+
+	res = loadDataset("../data/nodes.csv","../data/groups.csv","../data/balanced-group-edges.csv")
+	dataset = res['node2labels']
+	nodes=res['nodes']
+	labels = res['labels']
+	split_ratio = 0.75
+	num_epochs = 1			
+	batch_size = 5
+	hidden_size = 15
+	embedding_size = 128
+	summary_frequency = 10
+	num_labels = len(labels)
+	vocabulary_size = len(nodes)
+
+	# split dataset among training and validation sets.
+	train_dataset = dataset
+	train_dataset_merged, valid_dataset_merged = collectNodesAndLabels(train_dataset,True, split_ratio)
+
+	# create directories for logging.
+	timestamp = int(time.time())
+	log_directory = os.path.join("classifier_runs",str(timestamp))
+	utility.makeDir(log_directory)
+	log_directories = generateLogDirectories(log_directory)
+	# write metadata
+	write_metadata = os.path.join(log_directory,"metadata.txt")
+	writeMeta(write_metadata, args.embedding_file, hidden_size)
+	executeTraining(train_dataset_merged, valid_dataset_merged, num_epochs, batch_size, len(nodes), embedding_size, len(labels), hidden_size, 
+						summary_frequency, args.embedding_file, log_directories)	
+	
+	# # train each classifier individually.
+	# graph = tf.Graph()
+	# with graph.as_default():
+	# 	trainingGraph = TrainingGraph(vocabulary_size, embedding_size, num_labels, hidden_size)
+	# 	embeddings = utility.loadEmbeddings(args.embedding_file) 
+	# 	batchGen = BatchGenerator(train_dataset_merged, batch_size, num_labels)
+	# with tf.Session(graph=graph) as session:
+	# 	session.run(tf.global_variables_initializer())
+	# 	train_summary_writer = tf.summary.FileWriter(log_directories['train_log_directory'], graph=graph)
+	# 	for i in range(num_labels):
+	# 		trainSingleClassifier(i, graph, session, trainingGraph, train_dataset_merged, batch_size, embeddings, batchGen, 10, 
+	# 							  train_summary_writer, True)
