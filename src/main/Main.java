@@ -13,7 +13,8 @@ public class Main {
 
 	public static void main(String[] args) throws IOException {
 		// TODO Auto-generated method stub
-		ConfigFileReader cf = new ConfigFileReader("config.txt");
+		String configFile = args[0];
+		ConfigFileReader cf = new ConfigFileReader(configFile);
 		String nodesFile = (String) cf.getConfigOption("nodes_file");
 		String node_edges_file = (String) cf.getConfigOption("nodes_edges_file");
 		boolean isDirected = (boolean)cf.getConfigOption("is_directed");
@@ -22,12 +23,13 @@ public class Main {
 		String logdir = (String)cf.getConfigOption("log_dir");
 		String logfileName = "logs.txt";
 		boolean allow_log = (boolean)cf.getConfigOption("allow_logging");
+		int num_walks = (int)cf.getConfigOption("num_walks");
+		int walk_length = (int)cf.getConfigOption("walk_length");
 		Date d = new Date();
-		String time = "readTesting";//d.getTime()+"";
+		String time = d.getTime()+"";
 		String sessionLogDir = Utility.joinPaths(logdir,time);
-		
 		Utility.makeDirectory(sessionLogDir);
-		
+		Utility.copyFile(configFile, Utility.joinPaths(sessionLogDir,"config.txt"));
 		logfileName = Utility.joinPaths(sessionLogDir,logfileName); 
 		Utility.setLOG_FILE(logfileName);
 		
@@ -45,7 +47,7 @@ public class Main {
 		System.out.println("Creating edge samplers");
 		
 //		n2v.createEdgeSamplers();
-		n2v.generateWalks(10, 15);
+		n2v.generateWalks(num_walks,walk_length);
 //		for(Integer i:graph.getAllNodes()){
 //			if(graph.hasEdge(1, i))
 //			{

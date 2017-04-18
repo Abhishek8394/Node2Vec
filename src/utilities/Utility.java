@@ -130,4 +130,15 @@ public class Utility {
 		LOG_FILE = lOG_FILE;
 		logger = new Logger(LOG_FILE);
 	}
+	
+	public static void copyFile(String src, String dest) throws IOException{
+		BufferedReader reader = new BufferedReader(new InputStreamReader(new FileInputStream(src)));
+		BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(dest)));
+		String line;
+		while((line=reader.readLine())!=null){
+			writer.write(line+"\n");
+		}
+		writer.close();
+		reader.close();
+	}
 }
