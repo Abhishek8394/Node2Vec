@@ -31,51 +31,40 @@ def loadDataset(nodeFile, labelFile, node2labelFile):
 	reverseNodes = dict(zip(nodes.values(), nodes.keys()))
 	reverseLabels = dict(zip(labels.values(), labels.keys()))
 	return {"nodes":nodes, "labels":labels, "node2labels":node2labels, "reverseNodes":reverseNodes, "reverseLabels":reverseLabels}
-
-"""
-Write some metadata about things that were used during training.
-"""
 def writeMeta(meta_file, embedding_file, hidden_size):
 	j = {'embedding_file':embedding_file, 'hidden_size':hidden_size}
 	with open(meta_file,"w") as f:
 		f.write(str(j))
 
-"""
-Groups all labels to corresponding nodes from a dataset.
-Input: a list of (node,label) tuples.
-Output: Dictionary, keys => nodes, values => list of labels
-"""
 def collectNodesAndLabels(node2labels):
 	nl = {}
 	for n,l in node2labels:
 		if n not in nl:
 			nl[n]=[]
+		if n==4281:
+			print(l)
 		nl[n].append(l)
 	return nl
 
-"""
-a sort of hot encoding from a distribution of probabilities [classifier outputs]
-"""
 def hotEncodeDistribution(probabilities):
 	p=[]
 	for i in probabilities:
-		p.append(1.0 if i[0]>=i[1] else 0.0)
+		# p.append(1.0 if i[0]>=i[1] else 0.0)
+		p.append(0.0 if i[0]>=i[1] else 1.0)
 	return p 
 
-"""
-Not exactly hot encoding, encoding labels in the format desired by classifier's loss function.
-"""
 def hotEncode(num_labels, labels):
-	hotVec = []
-	for i in range(num_labels):
-		hotVec.append([0.0,1.0])
+	# hotVec = []
+	# for i in range(num_labels):
+	# 	hotVec.append([0.0,1.0])
+	# for i in labels:
+	# 	hotVec[label2id(i)] = [1.0,0.0]
+	# return hotVec
+	hotVec = [0] * num_labels
 	for i in labels:
-		hotVec[label2id(i)] = [1.0,0.0]
+		hotVec[label2id(i)] = 1
 	return hotVec
 
-"""
-Get labels from a hot encoding.
-"""
 def hotDecode(hotVec):
 	s = [id2label(i) for i in range(len(hotVec)) if hotVec[i][0]==1]
 	return s
@@ -120,17 +109,12 @@ def batch2string(batch):
 		s.append(record2string(b))
 	return "\n".join(s)
 
-"""
-The classifier. Create one for each label.
-"""
+
 class classifier_core_layer(object):
-	def __init__(self, _id,embedding_size, hidden_size, embeddings, tg_embed, tg_labels, l2_lambda=0):
-		self.id = _id
-		self.labels = tg_labels
-		self.embed = tg_embed
+	def __init__(self, embedding_size, hidden_size, embed, labels, l2_lambda=0):
 		self.w1 = tf.Variable(tf.truncated_normal([embedding_size, hidden_size],-0.1,0.1), dtype=tf.float32, name="weight1")
 		self.b1 = tf.Variable(tf.zeros([hidden_size]), dtype=tf.float32, name="bias1")
-		self.o1 = tf.sigmoid(tf.matmul(self.embed,self.w1) + self.b1)
+		self.o1 = tf.sigmoid(tf.matmul(embed,self.w1) + self.b1)
 		# first output is yes, second is no.
 		self.w2 = tf.Variable(tf.truncated_normal([hidden_size,2],-0.1,0.1), dtype=tf.float32, name="weight2")
 		self.b2 = tf.Variable(tf.zeros([1]), dtype=tf.float32, name="bias2")
@@ -140,58 +124,17 @@ class classifier_core_layer(object):
 		# labels = tf.reshape(labels,shape=[-1,2])
 		self.prediction = tf.nn.softmax(self.logits, name="prediction")
 		self.l2_loss = tf.nn.l2_loss(self.w1) + tf.nn.l2_loss(self.w2)
-		self.loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=self.logits, labels=self.labels)) + (l2_lambda * self.l2_loss)
+		self.loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits=self.logits, labels=labels)) + (l2_lambda * self.l2_loss)
 		# loss = tf.reduce_mean(-(labels * tf.log(self.prediction + 1e-7) + (1-labels)*tf.log(1-self.prediction + 1e-7))) + (l2_lambda * self.l2_loss) 
 		# self.loss = tf.identity(loss, name="loss")
 		self.optimizer = tf.train.AdamOptimizer(1e-3).minimize(self.loss)
 		self.l2_summary = tf.summary.scalar("l2_summary", self.l2_loss)
 		self.loss_summary = tf.summary.scalar("loss_summary", self.loss)
 
-		# for deciding which record of batch get to execute. 
-		self.running_neg_samples_count = 0 	# number of negative samples seen so far
-		self.num_allowed_negatives = 500 		# max num of negative samples allowed. 		
-
-	"""
-	To apply a filter on which sample of batch can enter the classifier or not.
-	Intended for limiting the number of -ve samples seen, but not used.
-	"""
-	def train_step(self,session, inp_x, labels, feed_dict):
-		batch_inp = []
-		batch_labels = []
-		removed_indices = set()
-		orig_size = len(inp_x)
-		for i in range(len(labels)):
-			# since label[0] = 1 if it is a label.
-			if labels[i][self.id][0]!=1:
-				# maximum permissible amount of negative samples met. No more must be allowed.
-				if self.running_neg_samples_count >= self.num_allowed_negatives:
-					removed_indices.add(i)
-					continue
-				else:
-					self.running_neg_samples_count+=1
-			batch_inp.append(inp_x[i])
-			batch_labels.append(labels[i][self.id])
-		feed_dict[self.inp_x] = batch_inp
-		feed_dict[self.labels] = batch_labels
-		pred, optimizer, l2_loss, loss, l2_summary, loss_summary = session.run([
-							self.prediction, self.optimizer, self.l2_loss, self.loss, self.l2_summary, self.loss_summary], feed_dict = feed_dict)
-		prediction = []
-		op_ctr = 0
-		for i in range(len(inp_x)):
-			if i in removed_indices:
-				prediction.append([0,1])
-			else:
-				prediction.append(pred[op_ctr])
-				op_ctr+=1
-		return {'prediction': prediction, 'optimizer': optimizer, 'l2_loss':l2_loss, 'loss':loss, 'l2_summary':l2_summary, 'loss_summary':loss_summary}
-
-"""
-Create the training graph.
-"""
 class TrainingGraph(object):
 	def __init__(self, vocabulary_size, embedding_size, num_labels, hidden_size):
 		self.inp_x = tf.placeholder(shape=[None], dtype=tf.int32, name="inp_x")
-		self.labels = tf.placeholder(shape=[num_labels,None,2], dtype=tf.float32, name="labels")
+		self.labels = tf.placeholder(shape=[num_labels,None], dtype=tf.int32, name="labels")
 		self.embeddings = tf.placeholder(shape=[vocabulary_size,embedding_size], dtype=tf.float32,name="embeddings")
 		self.embed = tf.nn.embedding_lookup(self.embeddings, self.inp_x)
 		self.global_step = tf.Variable(0, dtype=tf.int32)
@@ -199,7 +142,7 @@ class TrainingGraph(object):
 		classify_summaries=[]
 		for i in range(num_labels):
 			with tf.variable_scope('label_classifier-'+str(i)):
-				csfr = classifier_core_layer(i, embedding_size, hidden_size, self.embeddings,self.embed, self.labels[i], 0.01)					
+				csfr = classifier_core_layer(embedding_size, hidden_size, self.embed, self.labels[i], 0.01)					
 				self.classifiers.append(csfr)
 				classify_summaries.append(csfr.loss_summary)
 				classify_summaries.append(csfr.l2_summary)
@@ -208,11 +151,8 @@ class TrainingGraph(object):
 		classify_summaries.append(self.average_loss_summary)
 		self.all_summaries = tf.summary.merge(classify_summaries)
 
-"""
-crude count of amount of labels predicted accurately. 
-Not accuracy exactly, but for a rough idea.
-Gives a F-1 score of the batch as a whole. 
-"""
+# crude count of amount of labels predicted accurately. 
+# Not accuracy exactly, but for a rough idea.
 def get_accuracy(pred, labels):
 	acc=0
 	n = 0
@@ -227,7 +167,7 @@ def get_accuracy(pred, labels):
 	for i in range(len(pred)):
 		# c = 0
 		for j in range(len(pred[0])):
-			if labels[i][j][0]==1:
+			if labels[i][j]==1:
 				if pred[i][j]==1:
 					TP+=1
 				else:
@@ -243,6 +183,13 @@ def get_accuracy(pred, labels):
 	recall = float(TP) / (TP + FN + 1e-7)
 	f1 = 2 * precision * recall / (precision + recall + 1e-7)
 	return f1,precision,recall
+	# if n==0:
+	# 	if c==0:
+	# 		return 'N/A'
+	# 	return n-c
+	# return 100 * c / n 
+		# acc+= float(c) / len(pred[0])
+	# return (100 * abs(n-c)) / (len(pred)*len(pred[0]))
 
 def createInpOutListsFromBatch(batch):
 	inp_x = []
@@ -268,9 +215,8 @@ def executeTraining(train_dataset_merged, valid_dataset_merged, num_epochs, batc
 	recall_summary = tf.summary.scalar('recall_summary',recall_tf)
 	f1_summary = tf.summary.scalar('f1_summary',f1_tf)
 	stat_summary = tf.summary.merge([precision_summary, recall_summary, f1_summary])
-	stat_dict={}	# store all the stats.
+	stat_dict={}
 
-	# create directories for storing models, summaries.
 	summary_directory = os.path.join(log_directory,"summaries")
 	train_log_directory = os.path.join(summary_directory,"train")
 	valid_log_directory = os.path.join(summary_directory, "valid")
@@ -293,9 +239,8 @@ def executeTraining(train_dataset_merged, valid_dataset_merged, num_epochs, batc
 		saver = tf.train.Saver(tf.global_variables(),max_to_keep = num_checkpoints)
 		for i in range(num_iters):
 			batch = train_batch.next_batch()
-			inp_batch, lbls_batch = createInpOutListsFromBatch(batch)
-			feed_dict[tg.inp_x] = inp_batch
-			feed_dict[tg.labels] = np.transpose(lbls_batch,[1,0,2])
+			feed_dict[tg.inp_x], lbls_batch = createInpOutListsFromBatch(batch)
+			feed_dict[tg.labels] = np.transpose(lbls_batch,[1,0])
 			chk = False
 			num_classifiers_to_test = len(tg.classifiers)
 			# if 1 in feed_dict[tg.labels][0]:
@@ -314,24 +259,25 @@ def executeTraining(train_dataset_merged, valid_dataset_merged, num_epochs, batc
 			# loss across all classifiers.
 			net_loss = 0.0
 			train_summary = None
-			summaries_calculated = []
 			for j in range(num_classifiers_to_test):
 				if j==num_classifiers_to_test-1:
 					cl, prediction, _, train_summary = session.run([tg.classifiers[j].loss, tg.classifiers[j].prediction, tg.classifiers[j].optimizer, tg.all_summaries], feed_dict=feed_dict)
 				else:	
 					cl, prediction, _ = session.run([tg.classifiers[j].loss, tg.classifiers[j].prediction, tg.classifiers[j].optimizer], feed_dict=feed_dict)
-				
-				net_loss+=cl
-				# res = tg.classifiers[j].train_step(session, inp_batch, lbls_batch, feed_dict)
-				# summaries_calculated.append(res['l2_summary'])
-				# summaries_calculated.append(res['loss_summary'])
-				# net_loss+=res['loss']
 				# print(prediction)
 				classifier_ops.append(prediction)
 			# for x in range(len(prediction)):
 			# 	print(prediction[i],"--",feed_dict[tg.labels][i])
-			# # average of loss across all classifiers
+			# print(cl)
+			# break
+			net_loss+=cl
+			# print(prediction)
+			# average of loss across all classifiers
 			# net_loss/=len(tg.classifiers)
+			# print(net_loss)
+			# classifier_ops[0][4] = [-1]
+			# break
+			overall_avg_loss+=net_loss
 			# classifier_ops is num_classifiers x batch_size.
 			# convert it to batch x num_classifiers
 			classifier_ops = np.transpose(classifier_ops,[1,0,2])
@@ -343,11 +289,11 @@ def executeTraining(train_dataset_merged, valid_dataset_merged, num_epochs, batc
 				pred_hot_vec.append(hotEncodeDistribution(classifier_ops[j]))
 			# memory cleanup, bit agressive
 			del classifier_ops
-			# # for storing summaries when using filtered execution.
-			# for j in range(len(summaries_calculated)):
-			# 	train_summary_writer.add_summary(summaries_calculated[j], i)
 			train_summary_writer.add_summary(train_summary,i)
-
+			# print(pred_hot_vec)
+			# print("labels")
+			# print(feed_dict[tg.labels])
+			# break
 			f1, precision, recall = get_accuracy(pred_hot_vec, lbls_batch)
 			stat_dict[precision_tf] = precision
 			stat_dict[recall_tf] = recall
@@ -363,13 +309,13 @@ def executeTraining(train_dataset_merged, valid_dataset_merged, num_epochs, batc
 				for j in range(len(pred_hot_vec)):
 					print(pred_hot_vec[j],"--",lbls_batch[j][:num_classifiers_to_test])
 					print()
-
+				# break
+			# break
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--embedding-file",help="embeddings txt file to read from", required=True)
 args = parser.parse_args()
 
-# load dataset
 res = loadDataset("../data/nodes.csv","../data/groups.csv","../data/group-edges.csv")
 dataset = res['node2labels']
 nodes=res['nodes']
@@ -386,7 +332,8 @@ batch_size = 5
 hidden_size = 50
 embedding_size = 128
 summary_frequency = 10
-
+# print(batch2string(train_batch.next_batch()))
+# t = TrainingGraph(len(nodes), 128, len(labels), 15)
 timestamp = int(time.time())
 log_directory = os.path.join("classifier_runs",str(timestamp))
 utility.makeDir(log_directory)
@@ -394,3 +341,4 @@ write_metadata = os.path.join(log_directory,"metadata.txt")
 writeMeta(write_metadata, args.embedding_file, hidden_size)
 executeTraining(train_dataset_merged, valid_dataset_merged, num_epochs, batch_size, len(nodes), embedding_size, len(labels), hidden_size, 
 					summary_frequency, args.embedding_file, log_directory)
+# print(t.classifiers[0].loss)

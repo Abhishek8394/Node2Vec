@@ -1,4 +1,6 @@
 import numpy as np
+import random
+import argparse
 
 def loadDataset(fileName, dataDelim=":", max_rec = -1):
 	ds = []#np.empty([0,None],dtype=np.int32)
@@ -111,4 +113,51 @@ def batch2string(batch, label = None):
 		for i in range(len(batch)):
 			s.append(str(id2node(batch[i])) + ":" + str(id2node(label[i])))
 	return ", ".join(s)
+
+
+"""
+For creating balanced amount of positive and negative samples for a classifier.
+Output is no format: label, node, 1 if node has label
+					 label, node, 0 if node doesn't have label
+"""
+def createBalancedDataset(node2labelsFile, neg2posRatio, outputFile, dataDelim=','):
+	nodes = set()
+	label2nodes={}
+	with open(node2labelsFile,'r') as f:
+		for line in f:
+			nums = line.strip('\n').split(dataDelim)
+			n = int(nums[0])
+			l = int(nums[1])
+			if l not in label2nodes:
+				# using list instead of set to accommodate multiple copies in case required by dataset
+				label2nodes[l]=[]
+			label2nodes[l].append(n)
+			nodes.add(n)
+
+	with open(outputFile,'w') as f:
+		for i in label2nodes:
+			posSet = set(label2nodes[i])
+			unsetNodes = [x for x in nodes if x not in posSet]
+			maxNumNeg = neg2posRatio * len(posSet)
+			random.shuffle(unsetNodes)
+			negNodes = unsetNodes[:maxNumNeg]
+			print('Label {}: pos:{} neg:{}'.format(i,len(label2nodes[i]),len(negNodes)))
+			for j in label2nodes[i]:
+				f.write("{},{},1\n".format(i,j))
+			for j in negNodes:
+				f.write("{},{},0\n".format(i,j))
+
+
+if __name__ == '__main__':
+	parser = argparse.ArgumentParser()
+	parser.add_argument('--bal-data',help='run the dataset balancer',action = 'store_true')
+	parser.add_argument('--data-file', help='dataset file to balance', default="../data/group-edges.csv")
+	parser.add_argument('--out-file', help='destination to store output of balanced dataset',default='../data/balanced-group-edges.csv')
+	parser.add_argument('--neg-ratio',help = 'neg to pos ratio of samples desired', type=float, default = 2)
+	parser.add_argument('--data-delim',help = 'Delimeter used in dataset file', default = ',')
+	args = parser.parse_args()
+	if args.bal_data:
+		createBalancedDataset(args.data_file, args.neg_ratio, args.out_file, args.data_delim)
+		
+
 
