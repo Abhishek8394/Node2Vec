@@ -377,18 +377,25 @@ def trainSingleClassifier(classifierId, graph, session, trainingGraph, dataset, 
 if __name__ == '__main__':
 	parser = argparse.ArgumentParser()
 	parser.add_argument("--embedding-file",help="embeddings txt file to read from", required=True)
+	parser.add_argument("--meta-file",help="config file used when training embeddings", required=True)
+	parser.add_argument("--config-file",help="config file for training the classifiers", required=True)
 	args = parser.parse_args()
 
-	res = loadDataset("../data/nodes.csv","../data/groups.csv","../data/balanced-group-edges.csv")
+	embedMeta = utility.ConfigProvider(args.meta_file)
+	config = utility.ConfigProvider(args.config_file)
+	nodeFile = config.getOption('nodeFile')		# list of nodes.
+	labelFile = config.getOption('labelFile')	# list of labels
+	dataFile = config.getOption('trainingFile')	# list of node to label data for learning.
+	res = loadDataset(nodeFile, labelFile , dataFile)
 	dataset = res['node2labels']
 	nodes=res['nodes']
 	labels = res['labels']
-	split_ratio = 0.75
-	num_epochs = 1			
-	batch_size = 5
-	hidden_size = 15
-	embedding_size = 128
-	summary_frequency = 10
+	split_ratio = config.getOption('split_ratio')
+	num_epochs = config.getOption('num_epochs')
+	batch_size = config.getOption('batch_size')
+	hidden_size = config.getOption('hidden_size')
+	embedding_size = embedMeta.getOption('embedding_size')
+	summary_frequency = config.getOption('summary_frequency')
 	num_labels = len(labels)
 	vocabulary_size = len(nodes)
 
@@ -404,6 +411,7 @@ if __name__ == '__main__':
 	# write metadata
 	write_metadata = os.path.join(log_directory,"metadata.txt")
 	writeMeta(write_metadata, args.embedding_file, hidden_size)
+	utility.copyFile(args.config_file,os.path.join(log_directory, 'classify_config.txt'))
 	executeTraining(train_dataset_merged, valid_dataset_merged, num_epochs, batch_size, len(nodes), embedding_size, len(labels), hidden_size, 
 						summary_frequency, args.embedding_file, log_directories)	
 	

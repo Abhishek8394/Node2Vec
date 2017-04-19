@@ -27,3 +27,10 @@ def loadEmbeddings(embeddingsFile):
 			em = [float(x) for x in x[1].split(",")]
 			embed.append(em)
 	return embed
+
+def copyFile(src, dest):
+	with open(src,'r') as inp:
+		with open(dest,'w') as out:
+			for line in inp:
+				out.write(line)
+

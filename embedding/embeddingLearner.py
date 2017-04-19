@@ -118,12 +118,12 @@ if __name__ == "__main__":
 	parser = argparse.ArgumentParser()
 	parser.add_argument("--config-file", help="Config file for the training session", default="./train_config.txt")
 	parser.add_argument("--input-file", help="Dataset of walks", required=False)
-	parser.add_argument("--load-embed-from",help="just load pre-trained embeddings from a log diectory", default=None)
+	parser.add_argument("--load-embed-from",help="just load pre-trained embeddings from a log directory", default=None)
 	parser.add_argument("--print-only",help="only print the embeddings, do not write to file", action='store_true')
 	parser.add_argument("--output-file", help="custom filename for storing embeddings.", default="embeddings.txt")
+	parser.add_argument("--vocabulary-size", help="vocab size of embeddings.",type=int, default=10312)
 	args = parser.parse_args()
 	config = utility.ConfigProvider(args.config_file)	
-	vocabulary_size = 10312#ds_res['num_nodes']
 	embedding_size = config.getOption('embedding_size')
 	nce_sample_size = config.getOption('nce_sample_size')
 	batch_size = config.getOption('batch_size')
@@ -133,15 +133,15 @@ if __name__ == "__main__":
 	num_checkpoints = config.getOption('num_checkpoints')
 
 	if args.load_embed_from!=None:
-		res = createTrainingGraph(vocabulary_size, embedding_size, nce_sample_size)
+		res = createTrainingGraph(args.vocabulary_size, embedding_size, nce_sample_size)
 		printEmbeddings(res, args.load_embed_from, args.print_only, args.output_file)
 		exit(1)
 
 	print("Loading dataset")
-	exit(1)
 	ds_res = dh.loadDataset(args.input_file, max_rec=-1)
 	data_split = config.getOption('data_split')
 	dataset = ds_res['dataset']
+	vocabulary_size = ds_res['num_nodes']
 	ds_random_indices = np.arange(len(dataset))
 	np.random.shuffle(ds_random_indices)
 	splitBound = int(len(dataset)*data_split)
@@ -154,6 +154,7 @@ if __name__ == "__main__":
 	print("Learning embeddings from {} % of dataset".format(data_split*100))
 	print("Creating log dirs")
 	logdirs = createLogDirectories(config.getOption('log_dir'))
+	utility.copyFile(args.config_file,os.path.join(logdirs['main_dir'],'train_config.txt'))
 	print("Done")
 	# train_batches = dh.BatchGenerator(ds_res['dataset'], 5, 5)
 	# print("Actual batch size: {}".format(train_batches.getResultantBatchSize()))
