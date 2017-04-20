@@ -123,8 +123,15 @@ class BatchGenerator(object):
 		return batch
 
 	# return batch for just one classifier.
-	def classifier_next_batch(self, classifer_id):
-		return self.create_record(classifer_id)
+	def classifier_next_batch(self, classifier_id):
+		return self.create_record(classifier_id)
+
+	def resetCursors(self, classifier_id):
+		self.cursors[classifier_id] = 0
+
+	def resetAllCursors(self):
+		for i in range(len(self.cursors)):
+			self.cursors[i] = 0
 
 
 def record2string(rec):
@@ -147,6 +154,14 @@ class classifier_core_layer(object):
 		self.inp_x = tf.placeholder(shape=[None], dtype=tf.int32, name='inp_x')
 		self.embed = tf.nn.embedding_lookup(embeddings, self.inp_x)
 		self.labels = tf.placeholder(shape=[None,2], dtype=tf.float32, name='labels')
+		# For entirety of current batch
+		self.f1 = tf.placeholder(shape=[], dtype=tf.float32, name='f1')
+		self.precision = tf.placeholder(shape=[], dtype=tf.float32, name='precision')
+		self.recall = tf.placeholder(shape=[], dtype=tf.float32, name='recall')
+		# Placeholders for calculating average across several batches
+		self.avg_f1 = tf.placeholder(shape=[], dtype=tf.float32, name='avg_f1')
+		self.avg_precision = tf.placeholder(shape=[], dtype=tf.float32, name='avg_precision')
+		self.avg_recall = tf.placeholder(shape=[], dtype=tf.float32, name='avg_recall')
 		self.global_step = tf.Variable(0)
 
 		self.w1 = tf.Variable(tf.truncated_normal([embedding_size, hidden_size],-0.1,0.1), dtype=tf.float32, name="weight1")
@@ -164,7 +179,14 @@ class classifier_core_layer(object):
 		# self.loss = tf.identity(loss, name="loss")
 		self.optimizer = tf.train.AdamOptimizer(1e-3).minimize(self.loss)
 		self.l2_summary = tf.summary.scalar("l2_summary", self.l2_loss)
-		self.loss_summary = tf.summary.scalar("loss_summary", self.loss) 		
+		self.loss_summary = tf.summary.scalar("loss_summary", self.loss) 	
+		self.f1_summary = tf.summary.scalar("f1_summary", self.f1) 
+		self.precision_summary = tf.summary.scalar("precision_summary", self.precision) 
+		self.recall_summary = tf.summary.scalar("recall_summary", self.recall) 
+		self.avg_f1_summary = tf.summary.scalar("avg_f1_summary", self.avg_f1) 
+		self.avg_precision_summary = tf.summary.scalar("avg_precision_summary", self.avg_precision) 
+		self.avg_recall_summary = tf.summary.scalar("avg_recall_summary", self.avg_recall) 		
+
 
 class TrainingGraph(object):
 	def __init__(self, vocabulary_size, embedding_size, num_labels, hidden_size):
@@ -274,7 +296,8 @@ def executeTraining(train_dataset_merged, valid_dataset_merged, num_epochs, batc
 		f1_tf = tf.placeholder(shape=[], dtype=tf.float32,name='f1')
 
 	train_batch = BatchGenerator(train_dataset_merged, batch_size, num_labels)	
-	
+	valid_batch = BatchGenerator(valid_dataset_merged, batch_size, num_labels)
+
 	precision_summary = tf.summary.scalar('precision_summary',precision_tf)
 	recall_summary = tf.summary.scalar('recall_summary',recall_tf)
 	f1_summary = tf.summary.scalar('f1_summary',f1_tf)
@@ -288,6 +311,7 @@ def executeTraining(train_dataset_merged, valid_dataset_merged, num_epochs, batc
 	train_model_file = log_directories['train_model_file']
 	
 	train_summary_writer = tf.summary.FileWriter(train_log_directory, graph = graph)
+	valid_summary_writer = tf.summary.FileWriter(valid_log_directory, graph = graph)
 
 	maxLenRecord = max(train_dataset_merged,key = lambda x:len(train_dataset_merged[x]))
 	maxLen = len(train_dataset_merged[maxLenRecord]) 
@@ -304,6 +328,7 @@ def executeTraining(train_dataset_merged, valid_dataset_merged, num_epochs, batc
 	with tf.Session(graph=graph) as session:
 		session.run(tf.global_variables_initializer())
 		saver = tf.train.Saver(tf.global_variables(),max_to_keep = num_checkpoints)
+		valid_test = ValidationTest(graph, valid_batch, valid_summary_writer)
 		for i in range(num_iters):
 			batch = train_batch.next_batch()
 			num_classifiers_to_test = len(tg.classifiers)
@@ -336,13 +361,82 @@ def executeTraining(train_dataset_merged, valid_dataset_merged, num_epochs, batc
 			print("step {}/{}: loss: {}, f1:{}".format(i,num_iters,net_loss, f1))
 			if i%summary_frequency==0:
 				save_loc = saver.save(session, train_model_file, global_step = i)
+				valid_test.run_validation(session, tg, num_classifiers_to_test, feed_dict)
 				print("Saving model at {}".format(save_loc))
 				for j in range(len(pred_hot_vec)):
 					print(pred_hot_vec[j],"--",batch[j]['labels'])
 					print()
 
+class ValidationTest(object):
+
+	def __init__(self, graph, valid_batch, valid_summary_writer):
+		self.global_counter = 0
+		with graph.as_default():
+			self.avg_f1 = tf.placeholder(shape=[], dtype=tf.float32, name='avg_f1')
+			self.avg_prec = tf.placeholder(shape=[], dtype=tf.float32, name='avg_prec')
+			self.avg_rec = tf.placeholder(shape=[], dtype=tf.float32, name='avg_rec')
+			self.avg_f1_summary = tf.summary.scalar('avg_f1', self.avg_f1)
+			self.avg_prec_summary = tf.summary.scalar('avg_prec', self.avg_prec)
+			self.avg_rec_summary = tf.summary.scalar('avg_rec', self.avg_rec)
+		self.valid_batch = valid_batch
+		self.valid_summary_writer =  valid_summary_writer
+
+	def run_validation(self, session, tg, num_classifiers_to_test, feed_dict):
+		avg_f1,avg_prec,avg_rec = 0.0, 0.0, 0.0
+		for j in range(num_classifiers_to_test):
+			print("Running validation tests on classifier " + str(j))
+			clsfr = tg.classifiers[j]
+			self.valid_batch.batch_size = len(self.valid_batch.dataset[id2label(j)])
+			num_iters = 1 #len(self.valid_batch.dataset[id2label(j)]) // self.valid_batch.batch_size 
+			self.valid_batch.resetCursors(j)
+			# if num_iters==0:
+			# 	print("classifier {} has no validation data!".format(j))
+			# 	continue
+			# average f1, precision, recall across all batches
+			f1_s,prec_s,rec_s = 0.0, 0.0, 0.0
+			for i in range(num_iters):
+				batch = self.valid_batch.classifier_next_batch(j)
+				op = executeTrainStep(session, j, tg, batch['nodes'], batch['labels'], feed_dict, True)
+				pred=hotEncodeDistribution(op['classifier_ops'])
+
+				f1, prec, rec = get_accuracy([pred], [batch])
+				f1_summ, prec_summ, rec_summ = session.run([clsfr.f1_summary,clsfr.precision_summary, clsfr.recall_summary],
+															feed_dict={clsfr.precision:prec, clsfr.f1:f1, clsfr.recall:rec})
+				# map(lambda x:self.valid_summary_writer.add_summary(x,i),[f1_summ, prec_summ, rec_summ])
+				self.valid_summary_writer.add_summary(f1_summ,i)
+				self.valid_summary_writer.add_summary(prec_summ,i)
+				self.valid_summary_writer.add_summary(rec_summ,i)
+				f1_s += f1
+				prec_s += prec
+				rec_s += rec
+			f1_s /= num_iters
+			prec_s /= num_iters
+			rec_s /= num_iters
+			f1_summ, prec_summ, rec_summ = session.run([clsfr.avg_f1_summary, clsfr.avg_precision_summary, clsfr.avg_recall_summary],
+														feed_dict={clsfr.avg_f1:f1_s, clsfr.avg_precision:prec_s, clsfr.avg_recall:rec_s})
+			print("f1: {}, precision: {}, recall: {}".format(f1_s, prec_s, rec_s))
+			# map(lambda x:self.valid_summary_writer.add_summary(x,self.global_counter),[f1_summ, prec_summ, rec_summ])
+			self.valid_summary_writer.add_summary(f1_summ,self.global_counter)
+			self.valid_summary_writer.add_summary(prec_summ,self.global_counter)
+			self.valid_summary_writer.add_summary(rec_summ,self.global_counter)
+			avg_f1+=f1_s
+			avg_prec+=prec_s
+			avg_rec+=rec_s
+
+		avg_f1 /= num_classifiers_to_test
+		avg_prec /= num_classifiers_to_test
+		avg_rec /= num_classifiers_to_test
+		f1_summ, prec_summ, rec_summ = session.run([self.avg_f1_summary, self.avg_prec_summary, self.avg_rec_summary],
+													feed_dict={self.avg_f1:avg_f1, self.avg_prec:avg_prec, self.avg_rec:avg_rec})
+		self.valid_summary_writer.add_summary(f1_summ,self.global_counter)
+		self.valid_summary_writer.add_summary(prec_summ,self.global_counter)
+		self.valid_summary_writer.add_summary(rec_summ,self.global_counter)
+		print("avg f1: {}, avg prec: {}, avg rec: {}".format(avg_f1, avg_prec, avg_rec))
+		self.global_counter+=1
+
+
 def trainSingleClassifier(classifierId, graph, session, trainingGraph, dataset, batch_size, embeddings, batchGen, num_epochs, 
-						  train_summary_writer, is_training, summary_frequency=-1):
+						  train_summary_writer, saver, train_model_file, is_training, summary_frequency=-1):
 	tg = trainingGraph
 	with graph.as_default():
 		precision_tf = tf.placeholder(shape=[], dtype=tf.float32,name='precision')
@@ -374,6 +468,8 @@ def trainSingleClassifier(classifierId, graph, session, trainingGraph, dataset, 
 		for j in range(len(summaries)):
 			train_summary_writer.add_summary(summaries[j], i)
 		if summary_frequency > 0 and i%summary_frequency == 0:
+			save_loc = saver.save(session, train_model_file, global_step=i)
+			runValidationTest()
 			print(pred,batch['labels'])
 
 
@@ -427,9 +523,11 @@ if __name__ == '__main__':
 			trainingGraph = TrainingGraph(vocabulary_size, embedding_size, num_labels, hidden_size)
 			embeddings = utility.loadEmbeddings(args.embedding_file) 
 			batchGen = BatchGenerator(train_dataset_merged, batch_size, num_labels)
+		train_model_file = log_directories['train_model_file']
 		with tf.Session(graph=graph) as session:
 			session.run(tf.global_variables_initializer())
+			saver = tf.train.Saver(tf.global_variables(),max_to_keep = 5)
 			train_summary_writer = tf.summary.FileWriter(log_directories['train_log_directory'], graph=graph)
 			for i in range(num_labels):
 				trainSingleClassifier(i, graph, session, trainingGraph, train_dataset_merged, batch_size, embeddings, batchGen, 10, 
-									  train_summary_writer, True, 10)
+									  train_summary_writer, saver, train_model_file, True, 10)
