@@ -155,6 +155,13 @@ if __name__ == "__main__":
 	print("Creating log dirs")
 	logdirs = createLogDirectories(config.getOption('log_dir'))
 	utility.copyFile(args.config_file,os.path.join(logdirs['main_dir'],'train_config.txt'))
+	# logging on which walk dataset training was done.
+	with open(os.path.join(logdirs['main_dir'],'meta.txt'),'w') as f:
+		fileAddress={}
+		fileAddress['cwd'] = os.getcwd()
+		fileAddress['walksFile'] = args.input_file 
+		f.write(str(fileAddress)+"\n")
+
 	print("Done")
 	# train_batches = dh.BatchGenerator(ds_res['dataset'], 5, 5)
 	# print("Actual batch size: {}".format(train_batches.getResultantBatchSize()))

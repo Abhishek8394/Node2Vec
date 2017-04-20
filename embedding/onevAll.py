@@ -342,7 +342,7 @@ def executeTraining(train_dataset_merged, valid_dataset_merged, num_epochs, batc
 					print()
 
 def trainSingleClassifier(classifierId, graph, session, trainingGraph, dataset, batch_size, embeddings, batchGen, num_epochs, 
-						  train_summary_writer, is_training):
+						  train_summary_writer, is_training, summary_frequency=-1):
 	tg = trainingGraph
 	with graph.as_default():
 		precision_tf = tf.placeholder(shape=[], dtype=tf.float32,name='precision')
@@ -370,7 +370,11 @@ def trainSingleClassifier(classifierId, graph, session, trainingGraph, dataset, 
 
 		f1 = get_accuracy(pred, [batch])
 		print("step: {} loss:{} f1:{}".format(i,net_loss,f1))
-		print(pred,batch['labels'])
+		summaries = op['summaries_calculated']
+		for j in range(len(summaries)):
+			train_summary_writer.add_summary(summaries[j], i)
+		if summary_frequency > 0 and i%summary_frequency == 0:
+			print(pred,batch['labels'])
 
 
 
@@ -379,23 +383,24 @@ if __name__ == '__main__':
 	parser.add_argument("--embedding-file",help="embeddings txt file to read from", required=True)
 	parser.add_argument("--meta-file",help="config file used when training embeddings", required=True)
 	parser.add_argument("--config-file",help="config file for training the classifiers", required=True)
+	parser.add_argument("--separate-train", help="train each classifier one by one", action='store_true')
 	args = parser.parse_args()
 
 	embedMeta = utility.ConfigProvider(args.meta_file)
 	config = utility.ConfigProvider(args.config_file)
-	nodeFile = config.getOption('nodeFile')		# list of nodes.
-	labelFile = config.getOption('labelFile')	# list of labels
-	dataFile = config.getOption('trainingFile')	# list of node to label data for learning.
+	nodeFile = config.getOption('classifier_nodeFile')		# list of nodes.
+	labelFile = config.getOption('classifier_labelFile')	# list of labels
+	dataFile = config.getOption('classifier_trainingFile')	# list of node to label data for learning.
 	res = loadDataset(nodeFile, labelFile , dataFile)
 	dataset = res['node2labels']
 	nodes=res['nodes']
 	labels = res['labels']
-	split_ratio = config.getOption('split_ratio')
-	num_epochs = config.getOption('num_epochs')
-	batch_size = config.getOption('batch_size')
-	hidden_size = config.getOption('hidden_size')
-	embedding_size = embedMeta.getOption('embedding_size')
-	summary_frequency = config.getOption('summary_frequency')
+	split_ratio = config.getOption('classifier_split_ratio')
+	num_epochs = config.getOption('classifier_num_epochs')
+	batch_size = config.getOption('classifier_batch_size')
+	hidden_size = config.getOption('classifier_hidden_size')
+	summary_frequency = config.getOption('classifier_summary_frequency')
+	embedding_size = embedMeta.getOption('embedding_size')	# reads from metadata file.
 	num_labels = len(labels)
 	vocabulary_size = len(nodes)
 
@@ -412,18 +417,19 @@ if __name__ == '__main__':
 	write_metadata = os.path.join(log_directory,"metadata.txt")
 	writeMeta(write_metadata, args.embedding_file, hidden_size)
 	utility.copyFile(args.config_file,os.path.join(log_directory, 'classify_config.txt'))
-	executeTraining(train_dataset_merged, valid_dataset_merged, num_epochs, batch_size, len(nodes), embedding_size, len(labels), hidden_size, 
-						summary_frequency, args.embedding_file, log_directories)	
-	
-	# # train each classifier individually.
-	# graph = tf.Graph()
-	# with graph.as_default():
-	# 	trainingGraph = TrainingGraph(vocabulary_size, embedding_size, num_labels, hidden_size)
-	# 	embeddings = utility.loadEmbeddings(args.embedding_file) 
-	# 	batchGen = BatchGenerator(train_dataset_merged, batch_size, num_labels)
-	# with tf.Session(graph=graph) as session:
-	# 	session.run(tf.global_variables_initializer())
-	# 	train_summary_writer = tf.summary.FileWriter(log_directories['train_log_directory'], graph=graph)
-	# 	for i in range(num_labels):
-	# 		trainSingleClassifier(i, graph, session, trainingGraph, train_dataset_merged, batch_size, embeddings, batchGen, 10, 
-	# 							  train_summary_writer, True)
+	if not args.separate_train:
+		executeTraining(train_dataset_merged, valid_dataset_merged, num_epochs, batch_size, len(nodes), embedding_size, len(labels), hidden_size, 
+							summary_frequency, args.embedding_file, log_directories)	
+	else:
+		# train each classifier individually.
+		graph = tf.Graph()
+		with graph.as_default():
+			trainingGraph = TrainingGraph(vocabulary_size, embedding_size, num_labels, hidden_size)
+			embeddings = utility.loadEmbeddings(args.embedding_file) 
+			batchGen = BatchGenerator(train_dataset_merged, batch_size, num_labels)
+		with tf.Session(graph=graph) as session:
+			session.run(tf.global_variables_initializer())
+			train_summary_writer = tf.summary.FileWriter(log_directories['train_log_directory'], graph=graph)
+			for i in range(num_labels):
+				trainSingleClassifier(i, graph, session, trainingGraph, train_dataset_merged, batch_size, embeddings, batchGen, 10, 
+									  train_summary_writer, True, 10)
