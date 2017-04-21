@@ -366,6 +366,7 @@ def executeTraining(train_dataset_merged, valid_dataset_merged, num_epochs, batc
 				for j in range(len(pred_hot_vec)):
 					print(pred_hot_vec[j],"--",batch[j]['labels'])
 					print()
+		valid_test.run_validation(session, tg, num_classifiers_to_test, feed_dict)
 
 class ValidationTest(object):
 
@@ -381,9 +382,13 @@ class ValidationTest(object):
 		self.valid_batch = valid_batch
 		self.valid_summary_writer =  valid_summary_writer
 
-	def run_validation(self, session, tg, num_classifiers_to_test, feed_dict):
+	def resetCounter(self):
+		self.global_counter = 0
+
+	def run_validation(self, session, tg, num_classifiers_to_test, feed_dict, specific_classifiers=[]):
 		avg_f1,avg_prec,avg_rec = 0.0, 0.0, 0.0
-		for j in range(num_classifiers_to_test):
+		run_on_classifiers = range(num_classifiers_to_test) if len(specific_classifiers)==0 else specific_classifiers 
+		for j in specific_classifiers:
 			print("Running validation tests on classifier " + str(j))
 			clsfr = tg.classifiers[j]
 			self.valid_batch.batch_size = len(self.valid_batch.dataset[id2label(j)])
@@ -422,21 +427,21 @@ class ValidationTest(object):
 			avg_f1+=f1_s
 			avg_prec+=prec_s
 			avg_rec+=rec_s
-
-		avg_f1 /= num_classifiers_to_test
-		avg_prec /= num_classifiers_to_test
-		avg_rec /= num_classifiers_to_test
-		f1_summ, prec_summ, rec_summ = session.run([self.avg_f1_summary, self.avg_prec_summary, self.avg_rec_summary],
-													feed_dict={self.avg_f1:avg_f1, self.avg_prec:avg_prec, self.avg_rec:avg_rec})
-		self.valid_summary_writer.add_summary(f1_summ,self.global_counter)
-		self.valid_summary_writer.add_summary(prec_summ,self.global_counter)
-		self.valid_summary_writer.add_summary(rec_summ,self.global_counter)
-		print("avg f1: {}, avg prec: {}, avg rec: {}".format(avg_f1, avg_prec, avg_rec))
+		if len(specific_classifiers)==0:
+			avg_f1 /= num_classifiers_to_test
+			avg_prec /= num_classifiers_to_test
+			avg_rec /= num_classifiers_to_test
+			f1_summ, prec_summ, rec_summ = session.run([self.avg_f1_summary, self.avg_prec_summary, self.avg_rec_summary],
+														feed_dict={self.avg_f1:avg_f1, self.avg_prec:avg_prec, self.avg_rec:avg_rec})
+			self.valid_summary_writer.add_summary(f1_summ,self.global_counter)
+			self.valid_summary_writer.add_summary(prec_summ,self.global_counter)
+			self.valid_summary_writer.add_summary(rec_summ,self.global_counter)
+			print("avg f1: {}, avg prec: {}, avg rec: {}".format(avg_f1, avg_prec, avg_rec))
 		self.global_counter+=1
 
 
 def trainSingleClassifier(classifierId, graph, session, trainingGraph, dataset, batch_size, embeddings, batchGen, num_epochs, 
-						  train_summary_writer, saver, train_model_file, is_training, summary_frequency=-1):
+						  train_summary_writer, saver, train_model_file, is_training, valid_test, summary_frequency=-1):
 	tg = trainingGraph
 	with graph.as_default():
 		precision_tf = tf.placeholder(shape=[], dtype=tf.float32,name='precision')
@@ -469,9 +474,9 @@ def trainSingleClassifier(classifierId, graph, session, trainingGraph, dataset, 
 			train_summary_writer.add_summary(summaries[j], i)
 		if summary_frequency > 0 and i%summary_frequency == 0:
 			save_loc = saver.save(session, train_model_file, global_step=i)
-			runValidationTest()
+			valid_test.run_validation(session, tg, 1, feed_dict, [classifierId])
 			print(pred,batch['labels'])
-
+	valid_test.run_validation(session, tg, 1, feed_dict, [classifierId])
 
 
 if __name__ == '__main__':
@@ -523,11 +528,14 @@ if __name__ == '__main__':
 			trainingGraph = TrainingGraph(vocabulary_size, embedding_size, num_labels, hidden_size)
 			embeddings = utility.loadEmbeddings(args.embedding_file) 
 			batchGen = BatchGenerator(train_dataset_merged, batch_size, num_labels)
+			valid_batch = BatchGenerator(valid_dataset_merged, batch_size, num_labels)
 		train_model_file = log_directories['train_model_file']
 		with tf.Session(graph=graph) as session:
 			session.run(tf.global_variables_initializer())
 			saver = tf.train.Saver(tf.global_variables(),max_to_keep = 5)
+			valid_summary_writer = tf.summary.FileWriter(log_directories['valid_log_directory'], graph = graph)
 			train_summary_writer = tf.summary.FileWriter(log_directories['train_log_directory'], graph=graph)
+			valid_test = ValidationTest(graph, valid_batch, valid_summary_writer)
 			for i in range(num_labels):
 				trainSingleClassifier(i, graph, session, trainingGraph, train_dataset_merged, batch_size, embeddings, batchGen, 10, 
-									  train_summary_writer, saver, train_model_file, True, 10)
+									  train_summary_writer, saver, train_model_file, True, valid_test, 50)

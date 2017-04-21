@@ -1,11 +1,19 @@
 {
-	"embedding_size":128,
+	"embedding_size":64,
 	"nce_sample_size":5,
 	"batch_size": 10,
 	"data_split":1.0,
-	"window_size":1,
+	"window_size":10,
 	"log_dir": "runs",
 	"num_epochs": 1,
 	"summary_frequency": 1000,
-	"num_checkpoints": 5
+	"num_checkpoints": 5,
+	"classifier_split_ratio" : 0.75,
+	"classifier_num_epochs" : 1,
+	"classifier_batch_size" : 5,
+	"classifier_hidden_size" : 15,
+	"classifier_summary_frequency" : 50,
+	"classifier_nodeFile" : "../data/nodes.csv",
+	"classifier_labelFile" : "../data/groups.csv",
+	"classifier_trainingFile" : "../data/balanced-group-edges.csv"
 }
