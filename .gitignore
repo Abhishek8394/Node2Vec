@@ -4,5 +4,7 @@
 data/
 embedding/runs/
 embedding/classifier_runs/
+embedding/eval_runs/
+embedding/test/
 logs/
 *.pyc

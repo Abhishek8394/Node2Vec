@@ -161,6 +161,7 @@ if __name__ == "__main__":
 		fileAddress={}
 		fileAddress['cwd'] = os.getcwd()
 		fileAddress['walksFile'] = args.input_file 
+		fileAddress['num_nodes'] = vocabulary_size
 		f.write(str(fileAddress)+"\n")
 
 	print("Done")

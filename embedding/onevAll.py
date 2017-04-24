@@ -32,8 +32,8 @@ def loadDataset(nodeFile, labelFile, node2labelFile):
 	reverseLabels = dict(zip(labels.values(), labels.keys()))
 	return {"nodes":nodes, "labels":labels, "node2labels":node2labels, "reverseNodes":reverseNodes, "reverseLabels":reverseLabels}
 
-def writeMeta(meta_file, embedding_file, hidden_size):
-	j = {'embedding_file':embedding_file, 'hidden_size':hidden_size}
+def writeMeta(meta_file, **kwargs):
+	j = kwargs
 	with open(meta_file,"w") as f:
 		f.write(str(j))
 
@@ -379,13 +379,13 @@ def executeTraining(train_dataset_merged, valid_dataset_merged, num_epochs, batc
 		macro_f1 = 2 * precision_accum * recall_accum / (precision_accum + recall_accum + 1e-7)
 		print("Training Macro F1 score: {}".format(macro_f1))
 		macro_f1_summ = session.run([macro_f1_summary],feed_dict={macro_f1_tf: macro_f1})
-		train_summary_writer.add_summary(macro_f1_summ, 0)
+		train_summary_writer.add_summary(macro_f1_summ[0], 0)
 		valid_macro_prec = valid_test.precision_accum / valid_test.global_counter
 		valid_macro_rec = valid_test.recall_accum / valid_test.global_counter
 		valid_macro_f1 = 2 * valid_macro_prec * valid_macro_rec / (valid_macro_prec + valid_macro_rec + 1e-7)
 		print("Validation Macro F1 score: {}".format(valid_macro_f1))
 		macro_f1_summ = session.run([macro_f1_summary],feed_dict={macro_f1_tf: valid_macro_f1})
-		valid_summary_writer.add_summary(macro_f1_summ, 0)
+		valid_summary_writer.add_summary(macro_f1_summ[0], 0)
 		valid_summary_writer.flush()
 		train_summary_writer.flush()
 
@@ -472,13 +472,15 @@ def trainSingleClassifier(classifierId, graph, session, trainingGraph, dataset, 
 		precision_tf = tf.placeholder(shape=[], dtype=tf.float32,name='precision')
 		recall_tf = tf.placeholder(shape=[], dtype=tf.float32,name='recall')
 		f1_tf = tf.placeholder(shape=[], dtype=tf.float32,name='f1')
-		macro_f1_tf = tf.placeholder(shape=[], dtype=tf.float32,name='macro_f1')
-
+		with tf.variable_scope('label_classifier-'+str(classifierId)):
+			macro_f1_tf = tf.placeholder(shape=[], dtype=tf.float32,name='macro_f1')
+	total_prec = 0.0
+	total_rec = 0.0
 	precision_summary = tf.summary.scalar('precision_summary',precision_tf)
 	recall_summary = tf.summary.scalar('recall_summary',recall_tf)
 	f1_summary = tf.summary.scalar('f1_summary',f1_tf)
 	macro_f1_summary = tf.summary.scalar('macro_f1_summary', macro_f1_tf)
-	stat_summary = tf.summary.merge([precision_summary, recall_summary, f1_summary, macro_f1_summary])
+	stat_summary = tf.summary.merge([precision_summary, recall_summary, f1_summary])
 	stat_dict={}
 
 	recordLength = len(dataset[id2label(classifierId)])
@@ -494,7 +496,9 @@ def trainSingleClassifier(classifierId, graph, session, trainingGraph, dataset, 
 		net_loss = op['net_loss']
 		pred = [hotEncodeDistribution(op['classifier_ops'])]
 
-		f1 = get_accuracy(pred, [batch])
+		f1,prec,rec = get_accuracy(pred, [batch])
+		total_rec+=rec
+		total_prec+=prec
 		print("step: {} loss:{} f1:{}".format(i,net_loss,f1))
 		summaries = op['summaries_calculated']
 		for j in range(len(summaries)):
@@ -504,7 +508,11 @@ def trainSingleClassifier(classifierId, graph, session, trainingGraph, dataset, 
 			valid_test.run_validation(session, tg, 1, feed_dict, [classifierId])
 			print(pred,batch['labels'])
 	valid_test.run_validation(session, tg, 1, feed_dict, [classifierId])
-
+	avg_prec = total_prec/num_iters
+	avg_rec = total_rec/num_iters
+	macro_f1 = 2 * avg_prec * avg_rec / (avg_prec + avg_rec + 1e-7)
+	macro_f1_summ = session.run([macro_f1_summary], feed_dict={macro_f1_tf:macro_f1})
+	train_summary_writer.add_summary(macro_f1_summ[0],0)
 
 if __name__ == '__main__':
 	parser = argparse.ArgumentParser()
@@ -543,7 +551,7 @@ if __name__ == '__main__':
 	log_directories = generateLogDirectories(log_directory)
 	# write metadata
 	write_metadata = os.path.join(log_directory,"metadata.txt")
-	writeMeta(write_metadata, args.embedding_file, hidden_size)
+	writeMeta(write_metadata, embedding_file=args.embedding_file, hidden_size=hidden_size, num_nodes=len(nodes),num_labels=len(labels))
 	utility.copyFile(args.config_file,os.path.join(log_directory, 'classify_config.txt'))
 	if not args.separate_train:
 		executeTraining(train_dataset_merged, valid_dataset_merged, num_epochs, batch_size, len(nodes), embedding_size, len(labels), hidden_size, 
@@ -564,5 +572,5 @@ if __name__ == '__main__':
 			train_summary_writer = tf.summary.FileWriter(log_directories['train_log_directory'], graph=graph)
 			valid_test = ValidationTest(graph, valid_batch, valid_summary_writer)
 			for i in range(num_labels):
-				trainSingleClassifier(i, graph, session, trainingGraph, train_dataset_merged, batch_size, embeddings, batchGen, num_epochs, 
+				trainSingleClassifier(i, graph, session, trainingGraph, train_dataset_merged, batch_size, embeddings, batchGen, 5, 
 									  train_summary_writer, saver, train_model_file, True, valid_test, 50)

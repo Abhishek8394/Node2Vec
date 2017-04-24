@@ -6,10 +6,13 @@ def makeDir(pth):
 		os.makedirs(pth)
 
 class ConfigProvider(object):
-	def __init__(self, filename):
+	def __init__(self, filename=None):
 		self.js = None
-		with open(filename) as f:
-			self.js = json.load(f)
+		if filename!=None:
+			with open(filename) as f:
+				self.js = json.load(f)
+	def setDict(self,d):
+		self.js = d
 
 	def getOption(self,key):
 		return self.js[key]
