@@ -82,4 +82,32 @@ public class AliasSampler {
 	public void setkTable(ArrayList<Integer> kTable) {
 		this.kTable = kTable;
 	} 
+	
+	public void generateTablesShort(float[] probabilities){
+		Queue<Integer> sm = new LinkedList<Integer>();
+		Queue<Integer> lg = new LinkedList<Integer>();
+		for(int i=0;i<probabilities.length;i++){
+			float p = probabilities.length * probabilities[i];
+			probs.add(p);
+			kTable.add(0);
+			if(p<1){
+				sm.add(i);
+			}
+			else{
+				lg.add(i);
+			}
+		}
+		while(sm.size()>0 && lg.size()>0 ){
+			int s = sm.remove();
+			int l = lg.remove();
+			kTable.set(s, l);
+			probs.set(l, probs.get(l)+probs.get(s)-1);
+			if(probs.get(l)<1){
+				sm.add(l);
+			}
+			else{
+				lg.add(l);
+			}
+		}
+	}
 }

@@ -537,5 +537,5 @@ if __name__ == '__main__':
 			train_summary_writer = tf.summary.FileWriter(log_directories['train_log_directory'], graph=graph)
 			valid_test = ValidationTest(graph, valid_batch, valid_summary_writer)
 			for i in range(num_labels):
-				trainSingleClassifier(i, graph, session, trainingGraph, train_dataset_merged, batch_size, embeddings, batchGen, 10, 
+				trainSingleClassifier(i, graph, session, trainingGraph, train_dataset_merged, batch_size, embeddings, batchGen, num_epochs, 
 									  train_summary_writer, saver, train_model_file, True, valid_test, 50)

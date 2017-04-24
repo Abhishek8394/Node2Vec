@@ -15,6 +15,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Date;
 
 import org.json.JSONException;
@@ -110,6 +111,17 @@ public class Utility {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
+	}
+	
+	public static void copy_File(String src, String dest) throws IOException{
+		BufferedReader reader = new BufferedReader(new InputStreamReader(new FileInputStream(src)));
+		BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(dest)));
+		String line;
+		while((line=reader.readLine())!=null){
+			writer.write(line+"\n");
+		}
+		writer.close();
+		reader.close();
 	}
 	
 	public static boolean checkValidJsonFile(String filename){

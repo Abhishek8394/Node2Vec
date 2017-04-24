@@ -1,6 +1,10 @@
 package main;
 
+import java.util.Deque;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedList;
+import java.util.Queue;
 import java.util.Set;
 
 public class Graph {
@@ -76,6 +80,23 @@ public class Graph {
 	
 	public Set<String> getAllEdges(){
 		return edges.keySet();
+	}
+	
+	public void doBFS(Node startNode){
+		Deque<Node> q = new LinkedList<Node>();
+		HashSet<Integer> visited = new HashSet<>();
+		q.add(startNode);
+		while(q.size()>0){
+			Node curr = q.poll();
+			visited.add(curr.getId());
+			System.out.println(curr.getId());
+			for(Node n: curr.getChildren()){
+				if(!visited.contains(n.getId())){
+					q.add(n);
+				}
+			}
+		}
+		System.out.println("done");
 	}
 	
 }

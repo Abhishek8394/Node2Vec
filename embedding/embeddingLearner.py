@@ -127,6 +127,7 @@ if __name__ == "__main__":
 	embedding_size = config.getOption('embedding_size')
 	nce_sample_size = config.getOption('nce_sample_size')
 	batch_size = config.getOption('batch_size')
+	# window size is size of one side. So if you want context size of 10, pick 5.
 	window_size = config.getOption('window_size')
 	num_epochs = config.getOption('num_epochs')
 	summary_frequency = config.getOption('summary_frequency')
