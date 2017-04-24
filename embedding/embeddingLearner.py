@@ -75,7 +75,7 @@ def executeTrainingGraph(graphVars, logdirs, dataset, batch_size, window_size, n
 			net_loss+=loss
 			print("step {}/{}: loss: {}".format(i,num_iters,loss))
 			summaryWriter.add_summary(train_summary,i)
-
+			summaryWriter.flush()
 			if i%summary_frequency==0:
 				avg_loss = net_loss if i==0 else net_loss/i
 				print("Average Loss: {}".format(avg_loss))

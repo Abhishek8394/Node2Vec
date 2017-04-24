@@ -363,11 +363,12 @@ def executeTraining(train_dataset_merged, valid_dataset_merged, num_epochs, batc
 			stat_dict[f1_tf] = f1
 			pre, rec, ef1, ss = session.run([precision_tf, recall_tf, f1_tf, stat_summary],feed_dict = stat_dict)
 			train_summary_writer.add_summary(ss,i)
-
+			train_summary_writer.flush()
 			print("step {}/{}: loss: {}, f1:{}".format(i,num_iters,net_loss, f1))
 			if i%summary_frequency==0:
 				save_loc = saver.save(session, train_model_file, global_step = i)
 				valid_test.run_validation(session, tg, num_classifiers_to_test, feed_dict)
+				valid_summary_writer.flush()
 				print("Saving model at {}".format(save_loc))
 				for j in range(len(pred_hot_vec)):
 					print(pred_hot_vec[j],"--",batch[j]['labels'])
@@ -385,6 +386,8 @@ def executeTraining(train_dataset_merged, valid_dataset_merged, num_epochs, batc
 		print("Validation Macro F1 score: {}".format(valid_macro_f1))
 		macro_f1_summ = session.run([macro_f1_summary],feed_dict={macro_f1_tf: valid_macro_f1})
 		valid_summary_writer.add_summary(macro_f1_summ, 0)
+		valid_summary_writer.flush()
+		train_summary_writer.flush()
 
 class ValidationTest(object):
 
