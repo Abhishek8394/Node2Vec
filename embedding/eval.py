@@ -157,9 +157,3 @@ if __name__ == "__main__":
 					print("{}: expected: {} got: {}".format(nodeid,exp_lbls,lbls))
 			global_count+=1
 			summary_writer.flush()
-
-
-
-
-
-

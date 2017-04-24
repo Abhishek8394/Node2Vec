@@ -2,8 +2,11 @@ package main;
 
 import java.io.BufferedWriter;
 import java.io.FileNotFoundException;
+import java.io.FileWriter;
 import java.io.BufferedReader;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Date;
@@ -913,5 +916,91 @@ public class Node2vec {
 			}
 		}
 		System.out.println("All log threads done.");
+	}
+	
+	public void createEdgeSamplers_old(boolean shouldBreak, int breakPoint){
+		Set<String> edges = graph.getAllEdges();
+		HashSet<String> batchEdges = new HashSet<>();
+		System.out.println(edges.size()+" edges");
+		int ctr=1;
+		Date d = new Date();
+		for(String s:edges){
+			if(ctr%summaryFrequency == 0){
+				System.out.println("writing results");
+				writeEdgeSamplesToFile(batchEdges);
+				batchEdges.clear();
+			}
+			System.out.println("Processing Edge: "+ ctr+" / "+edges.size());
+			int[] nds = graph.decodeEdge(s);
+			Node n1 = graph.getNode(nds[0]);
+			Node n2 = graph.getNode(nds[1]);
+			float[] probs = transitionalProbs(n1, n2);
+			float normalizer = 0;
+			for(int pIndex=0;pIndex<probs.length;pIndex++){
+				normalizer+=probs[pIndex];
+			}
+			for(int pIndex=0;pIndex<probs.length;pIndex++){
+				probs[pIndex]/=normalizer;
+			}
+			AliasSampler smplr = new AliasSampler(probs.length);
+			smplr.generateTables(probs);
+			if(edgeSamplers.containsKey(s)){
+				System.out.println("Alert! "+s);
+			}
+			edgeSamplers.put(s, smplr);
+			batchEdges.add(s);
+			if(!graph.isDirected){
+				probs = transitionalProbs(n2, n1);
+				smplr = new AliasSampler(probs.length);
+				String revEdge = graph.encodeEdge(n2.getId(), n1.getId());
+				edgeSamplers.put(revEdge, smplr);
+				batchEdges.add(revEdge);
+			}
+			ctr+=1;
+			if(shouldBreak && ctr==breakPoint){
+				break;
+			}
+		}
+		Date d2 = new Date();
+		System.out.println("took "+(d2.getTime()-d.getTime()));
+		System.out.println("Cleaning up log buffers...");
+		
+		// make sure logging threads are done.
+		for(int i=0;i<pendingTasks.size();i++){
+			try {
+				pendingTasks.get(i).join();
+			} catch (InterruptedException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+		}
+		System.out.println("All log threads done.");
+	}
+
+	public static synchronized void writeObjectToFile(JSONObject js, String fileName, boolean append,boolean overwriteDuplicate) throws JSONException, IOException{
+		boolean fileExists = Files.exists(Paths.get(fileName, new String[]{}));
+		if(fileExists){
+			fileExists = Utility.checkValidJsonFile(fileName);
+		}
+		if(append && fileExists){
+			JSONObject oldObj = new JSONObject(Utility.readFile(fileName));
+			for(String k:oldObj.keySet()){
+				if(js.has(k)){
+//					System.out.println("Key conflicting in overwriting file. Skipping it");
+//					System.out.println("Conflict key: "+k);
+//					js.remove(k);
+					if(!overwriteDuplicate){
+						js.put(k, oldObj.get(k));
+					}
+				}
+				else{
+					js.put(k,oldObj.get(k));
+				}
+			}
+		}
+		FileWriter fw = new FileWriter(fileName);
+		BufferedWriter bw = new BufferedWriter(fw);
+		bw.write(js.toString(1));
+		bw.close();		
 	}
 }

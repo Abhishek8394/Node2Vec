@@ -1,9 +1,17 @@
 package utilities;
 
+import java.io.BufferedWriter;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.Queue;
 import java.util.Random;
+
+import org.json.JSONException;
+import org.json.JSONObject;
 
 public class AliasSampler {
 	public ArrayList<Float> probs;		// probability table
@@ -109,5 +117,31 @@ public class AliasSampler {
 				lg.add(l);
 			}
 		}
+	}
+	public static synchronized void writeObjectToFile(JSONObject js, String fileName, boolean append,boolean overwriteDuplicate) throws JSONException, IOException{
+		boolean fileExists = Files.exists(Paths.get(fileName, new String[]{}));
+		if(fileExists){
+			fileExists = Utility.checkValidJsonFile(fileName);
+		}
+		if(append && fileExists){
+			JSONObject oldObj = new JSONObject(Utility.readFile(fileName));
+			for(String k:oldObj.keySet()){
+				if(js.has(k)){
+//					System.out.println("Key conflicting in overwriting file. Skipping it");
+//					System.out.println("Conflict key: "+k);
+//					js.remove(k);
+					if(!overwriteDuplicate){
+						js.put(k, oldObj.get(k));
+					}
+				}
+				else{
+					js.put(k,oldObj.get(k));
+				}
+			}
+		}
+		FileWriter fw = new FileWriter(fileName);
+		BufferedWriter bw = new BufferedWriter(fw);
+		bw.write(js.toString(1));
+		bw.close();		
 	}
 }
