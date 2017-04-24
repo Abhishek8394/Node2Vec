@@ -303,7 +303,7 @@ def executeTraining(train_dataset_merged, valid_dataset_merged, num_epochs, batc
 	recall_summary = tf.summary.scalar('recall_summary',recall_tf)
 	f1_summary = tf.summary.scalar('f1_summary',f1_tf)
 	macro_f1_summary = tf.summary.scalar('macro_f1_summary', macro_f1_tf)
-	stat_summary = tf.summary.merge([precision_summary, recall_summary, f1_summary, macro_f1_summary])
+	stat_summary = tf.summary.merge([precision_summary, recall_summary, f1_summary])
 	stat_dict={}
 
 	summary_directory = log_directories['summary_directory']
