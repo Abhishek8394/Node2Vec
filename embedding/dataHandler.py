@@ -23,16 +23,16 @@ def loadDataset(fileName, dataDelim=":", max_rec = -1):
 	return {"dataset": ds, "num_nodes": num_nodes}
 
 def readLabelsFlle(filename, delim=","):
-nodeToLabel = {}
-with open(filename,"r") as f:
-	for j in f:
-		line = [int(x) for x in j.strip("\n").split(delim)]
-		node = classifier.node2id(line[0])
-		label = classifier.label2id(line[1])
-		if node not in nodeToLabel:
-			nodeToLabel[node] = set()
-		nodeToLabel[node].add(label)
-return nodeToLabel
+	nodeToLabel = {}
+	with open(filename,"r") as f:
+		for j in f:
+			line = [int(x) for x in j.strip("\n").split(delim)]
+			node = classifier.node2id(line[0])
+			label = classifier.label2id(line[1])
+			if node not in nodeToLabel:
+				nodeToLabel[node] = set()
+			nodeToLabel[node].add(label)
+	return nodeToLabel
 
 """
 since graphs contain vertices 1...n and we need to map them to 0 - (vocab_size-1)
