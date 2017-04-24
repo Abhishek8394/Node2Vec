@@ -158,6 +158,3 @@ if __name__ == '__main__':
 	args = parser.parse_args()
 	if args.bal_data:
 		createBalancedDataset(args.data_file, args.neg_ratio, args.out_file, args.data_delim)
-		
-
-

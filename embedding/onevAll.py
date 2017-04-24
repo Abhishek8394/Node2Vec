@@ -294,6 +294,7 @@ def executeTraining(train_dataset_merged, valid_dataset_merged, num_epochs, batc
 		precision_tf = tf.placeholder(shape=[], dtype=tf.float32,name='precision')
 		recall_tf = tf.placeholder(shape=[], dtype=tf.float32,name='recall')
 		f1_tf = tf.placeholder(shape=[], dtype=tf.float32,name='f1')
+		macro_f1_tf = tf.placeholder(shape=[], dtype=tf.float32,name='macro_f1')
 
 	train_batch = BatchGenerator(train_dataset_merged, batch_size, num_labels)	
 	valid_batch = BatchGenerator(valid_dataset_merged, batch_size, num_labels)
@@ -301,7 +302,8 @@ def executeTraining(train_dataset_merged, valid_dataset_merged, num_epochs, batc
 	precision_summary = tf.summary.scalar('precision_summary',precision_tf)
 	recall_summary = tf.summary.scalar('recall_summary',recall_tf)
 	f1_summary = tf.summary.scalar('f1_summary',f1_tf)
-	stat_summary = tf.summary.merge([precision_summary, recall_summary, f1_summary])
+	macro_f1_summary = tf.summary.scalar('macro_f1_summary', macro_f1_tf)
+	stat_summary = tf.summary.merge([precision_summary, recall_summary, f1_summary, macro_f1_summary])
 	stat_dict={}
 
 	summary_directory = log_directories['summary_directory']
@@ -322,6 +324,8 @@ def executeTraining(train_dataset_merged, valid_dataset_merged, num_epochs, batc
 	feed_dict={}
 	embeddings = utility.loadEmbeddings(embeddings_file)
 	feed_dict[tg.embeddings] = embeddings
+	precision_accum = 0.0
+	recall_accum = 0.0
 	print("Will take {} iters".format(num_iters))
 	# average loss of the system as whole
 	overall_avg_loss = 0.0
@@ -352,6 +356,8 @@ def executeTraining(train_dataset_merged, valid_dataset_merged, num_epochs, batc
 				train_summary_writer.add_summary(summaries_calculated[j], i)
 
 			f1, precision, recall = get_accuracy(pred_hot_vec, batch)
+			precision_accum += precision
+			recall_accum += recall
 			stat_dict[precision_tf] = precision
 			stat_dict[recall_tf] = recall
 			stat_dict[f1_tf] = f1
@@ -367,6 +373,18 @@ def executeTraining(train_dataset_merged, valid_dataset_merged, num_epochs, batc
 					print(pred_hot_vec[j],"--",batch[j]['labels'])
 					print()
 		valid_test.run_validation(session, tg, num_classifiers_to_test, feed_dict)
+		precision_accum /= num_iters
+		recall_accum /= num_iters
+		macro_f1 = 2 * precision_accum * recall_accum / (precision_accum + recall_accum + 1e-7)
+		print("Training Macro F1 score: {}".format(macro_f1))
+		macro_f1_summ = session.run([macro_f1_summary],feed_dict={macro_f1_tf: macro_f1})
+		train_summary_writer.add_summary(macro_f1_summ, 0)
+		valid_macro_prec = valid_test.precision_accum / valid_test.global_counter
+		valid_macro_rec = valid_test.recall_accum / valid_test.global_counter
+		valid_macro_f1 = 2 * valid_macro_prec * valid_macro_rec / (valid_macro_prec + valid_macro_rec + 1e-7)
+		print("Validation Macro F1 score: {}".format(valid_macro_f1))
+		macro_f1_summ = session.run([macro_f1_summary],feed_dict={macro_f1_tf: valid_macro_f1})
+		valid_summary_writer.add_summary(macro_f1_summ, 0)
 
 class ValidationTest(object):
 
@@ -379,16 +397,19 @@ class ValidationTest(object):
 			self.avg_f1_summary = tf.summary.scalar('avg_f1', self.avg_f1)
 			self.avg_prec_summary = tf.summary.scalar('avg_prec', self.avg_prec)
 			self.avg_rec_summary = tf.summary.scalar('avg_rec', self.avg_rec)
+		self.precision_accum = 0.0
+		self.recall_accum = 0.0
 		self.valid_batch = valid_batch
 		self.valid_summary_writer =  valid_summary_writer
+		self.avg_f1,self.avg_prec,self.avg_rec = 0.0, 0.0, 0.0
 
 	def resetCounter(self):
 		self.global_counter = 0
 
 	def run_validation(self, session, tg, num_classifiers_to_test, feed_dict, specific_classifiers=[]):
-		avg_f1,avg_prec,avg_rec = 0.0, 0.0, 0.0
+		
 		run_on_classifiers = range(num_classifiers_to_test) if len(specific_classifiers)==0 else specific_classifiers 
-		for j in specific_classifiers:
+		for j in run_on_classifiers:
 			print("Running validation tests on classifier " + str(j))
 			clsfr = tg.classifiers[j]
 			self.valid_batch.batch_size = len(self.valid_batch.dataset[id2label(j)])
@@ -414,6 +435,8 @@ class ValidationTest(object):
 				f1_s += f1
 				prec_s += prec
 				rec_s += rec
+			self.precision_accum+=prec_s
+			self.recall_accum+=rec
 			f1_s /= num_iters
 			prec_s /= num_iters
 			rec_s /= num_iters
@@ -424,13 +447,13 @@ class ValidationTest(object):
 			self.valid_summary_writer.add_summary(f1_summ,self.global_counter)
 			self.valid_summary_writer.add_summary(prec_summ,self.global_counter)
 			self.valid_summary_writer.add_summary(rec_summ,self.global_counter)
-			avg_f1+=f1_s
-			avg_prec+=prec_s
-			avg_rec+=rec_s
+			self.avg_f1+=f1_s
+			self.avg_prec+=prec_s
+			self.avg_rec+=rec_s
 		if len(specific_classifiers)==0:
-			avg_f1 /= num_classifiers_to_test
-			avg_prec /= num_classifiers_to_test
-			avg_rec /= num_classifiers_to_test
+			avg_f1 = self.avg_f1 / num_classifiers_to_test
+			avg_prec = self.avg_prec / num_classifiers_to_test
+			avg_rec = self.avg_rec / num_classifiers_to_test
 			f1_summ, prec_summ, rec_summ = session.run([self.avg_f1_summary, self.avg_prec_summary, self.avg_rec_summary],
 														feed_dict={self.avg_f1:avg_f1, self.avg_prec:avg_prec, self.avg_rec:avg_rec})
 			self.valid_summary_writer.add_summary(f1_summ,self.global_counter)
@@ -447,11 +470,13 @@ def trainSingleClassifier(classifierId, graph, session, trainingGraph, dataset, 
 		precision_tf = tf.placeholder(shape=[], dtype=tf.float32,name='precision')
 		recall_tf = tf.placeholder(shape=[], dtype=tf.float32,name='recall')
 		f1_tf = tf.placeholder(shape=[], dtype=tf.float32,name='f1')
-	
+		macro_f1_tf = tf.placeholder(shape=[], dtype=tf.float32,name='macro_f1')
+
 	precision_summary = tf.summary.scalar('precision_summary',precision_tf)
 	recall_summary = tf.summary.scalar('recall_summary',recall_tf)
 	f1_summary = tf.summary.scalar('f1_summary',f1_tf)
-	stat_summary = tf.summary.merge([precision_summary, recall_summary, f1_summary])
+	macro_f1_summary = tf.summary.scalar('macro_f1_summary', macro_f1_tf)
+	stat_summary = tf.summary.merge([precision_summary, recall_summary, f1_summary, macro_f1_summary])
 	stat_dict={}
 
 	recordLength = len(dataset[id2label(classifierId)])

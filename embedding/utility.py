@@ -33,4 +33,3 @@ def copyFile(src, dest):
 		with open(dest,'w') as out:
 			for line in inp:
 				out.write(line)
-
