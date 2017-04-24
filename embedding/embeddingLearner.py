@@ -25,7 +25,7 @@ def createTrainingGraph(vocabulary_size, embedding_size, nce_sample_size, learni
 		embeddings = tf.Variable(tf.random_uniform([vocabulary_size,embedding_size], -1.0, 1.0), dtype=tf.float32, name="embeddings")
 		embed = tf.nn.embedding_lookup(embeddings, inp_x,name="embedding_lookup")
 		w_nce = tf.Variable(tf.truncated_normal([vocabulary_size, embedding_size], -0.1, 0.1), dtype=tf.float32, name="nce_w")
-		b_nce = tf.Variable(tf.zeros([embedding_size]), dtype=tf.float32, name="nce_b")
+		b_nce = tf.Variable(tf.zeros([vocabulary_size]), dtype=tf.float32, name="nce_b")
 		# logits = tf.nn.xw_plus_b(embed, w, b)
 		loss = tf.reduce_mean(tf.nn.nce_loss(w_nce, b_nce, 
 								labels=inp_y, inputs=embed, 
