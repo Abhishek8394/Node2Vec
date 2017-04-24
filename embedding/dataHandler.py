@@ -138,7 +138,7 @@ def createBalancedDataset(node2labelsFile, neg2posRatio, outputFile, dataDelim='
 		for i in label2nodes:
 			posSet = set(label2nodes[i])
 			unsetNodes = [x for x in nodes if x not in posSet]
-			maxNumNeg = neg2posRatio * len(posSet)
+			maxNumNeg = int(neg2posRatio * len(posSet))
 			random.shuffle(unsetNodes)
 			negNodes = unsetNodes[:maxNumNeg]
 			print('Label {}: pos:{} neg:{}'.format(i,len(label2nodes[i]),len(negNodes)))
