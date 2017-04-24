@@ -404,13 +404,12 @@ class ValidationTest(object):
 		self.recall_accum = 0.0
 		self.valid_batch = valid_batch
 		self.valid_summary_writer =  valid_summary_writer
-		self.avg_f1,self.avg_prec,self.avg_rec = 0.0, 0.0, 0.0
 
 	def resetCounter(self):
 		self.global_counter = 0
 
 	def run_validation(self, session, tg, num_classifiers_to_test, feed_dict, specific_classifiers=[]):
-		
+		avg_f1, avg_prec, avg_rec = 0.0, 0.0, 0.0
 		run_on_classifiers = range(num_classifiers_to_test) if len(specific_classifiers)==0 else specific_classifiers 
 		for j in run_on_classifiers:
 			print("Running validation tests on classifier " + str(j))
@@ -450,13 +449,13 @@ class ValidationTest(object):
 			self.valid_summary_writer.add_summary(f1_summ,self.global_counter)
 			self.valid_summary_writer.add_summary(prec_summ,self.global_counter)
 			self.valid_summary_writer.add_summary(rec_summ,self.global_counter)
-			self.avg_f1+=f1_s
-			self.avg_prec+=prec_s
-			self.avg_rec+=rec_s
+			avg_f1+=f1_s
+			avg_prec+=prec_s
+			avg_rec+=rec_s
 		if len(specific_classifiers)==0:
-			avg_f1 = self.avg_f1 / num_classifiers_to_test
-			avg_prec = self.avg_prec / num_classifiers_to_test
-			avg_rec = self.avg_rec / num_classifiers_to_test
+			avg_f1 = avg_f1 / num_classifiers_to_test
+			avg_prec = avg_prec / num_classifiers_to_test
+			avg_rec = avg_rec / num_classifiers_to_test
 			f1_summ, prec_summ, rec_summ = session.run([self.avg_f1_summary, self.avg_prec_summary, self.avg_rec_summary],
 														feed_dict={self.avg_f1:avg_f1, self.avg_prec:avg_prec, self.avg_rec:avg_rec})
 			self.valid_summary_writer.add_summary(f1_summ,self.global_counter)
