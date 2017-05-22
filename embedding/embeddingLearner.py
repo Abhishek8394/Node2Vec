@@ -8,17 +8,6 @@ import numpy as np
 import tensorflow as tf
 from tensorflow.contrib.tensorboard.plugins import projector
 
-def readLabelsFlle(filename, delim=","):
-	nodeToLabel = {}
-	with open(filename,"r") as f:
-		for j in f:
-			line = [int(x) for x in j.strip("\n").split(delim)]
-			node = classifier.node2id(line[0])
-			label = classifier.label2id(line[1])
-			if node not in nodeToLabel:
-				nodeToLabel[node] = set()
-			nodeToLabel[node].add(label)
-	return nodeToLabel
 
 def createLogDirectories(log_dir):
 	timestamp = int(time.time())
